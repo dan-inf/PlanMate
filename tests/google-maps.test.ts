@@ -183,3 +183,24 @@ test("absurd local route legs are rejected", () => {
   assert.equal(routeIsPlausible({ minutes: 2804, distanceMeters: 5_000_000, mode: "drive" }), false);
   assert.equal(routeIsPlausible({ minutes: 24, distanceMeters: 12_000, mode: "drive" }), true);
 });
+
+test("a generic meal slot does not become an arbitrary restaurant", () => {
+  const lunch = item({ title: "Hosted working lunch", description: "Lunch in the hotel meeting room", location: "Downtown Austin" });
+  const source = { ...plan(lunch), location: "Austin, Texas" };
+  const bar = { id: "bar", displayName: { text: "Group Therapy" }, formattedAddress: "400 Lavaca St, Austin, TX, USA", primaryType: "restaurant", types: ["restaurant", "bar"], rating: 4.8, userRatingCount: 900 };
+  assert.equal(selectStrongPlace([bar], lunch, source), null);
+});
+
+test("a transfer description does not become a sightseeing activity", () => {
+  const transfer = item({ type: "activity", title: "Direct transfer to lakefront", description: "Take an accessible taxi or rideshare to a drop-off", location: "Chicago, Illinois" });
+  const source = { ...plan(transfer), location: "Chicago, Illinois" };
+  const tour = { id: "tour", displayName: { text: "Shoreline Sightseeing" }, formattedAddress: "Chicago, IL, USA", primaryType: "tourist_attraction", types: ["tourist_attraction"] };
+  assert.equal(selectStrongPlace([tour], transfer, source), null);
+});
+
+test("routine dietary-accommodation copy does not imply a hard allergy", () => {
+  const meal = item({ verification: "google-verified", description: "Confirm dietary accommodations for the group" });
+  const source = plan(meal);
+  applyConstraintConfirmations(source);
+  assert.doesNotMatch(meal.description, /Dietary suitability needs confirmation/);
+});

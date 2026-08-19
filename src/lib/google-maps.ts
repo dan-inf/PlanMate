@@ -97,6 +97,8 @@ export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) 
   // A generic walk, neighborhood exploration, or flexible activity is not a venue.
   // Require some name/context agreement before attaching a specific Google place.
   if (item.type === "activity" && titleScore < 0.2 && /\b(explor|stroll|walk|free time|downtime|flexible|neighborhood)\b/i.test(`${item.title} ${item.description}`)) return Math.min(score, 0.35);
+  if (item.type === "activity" && titleScore < 0.2 && /\b(taxi|rideshare|transfer|drop.?off|transport)\b/i.test(`${item.title} ${item.description}`)) return Math.min(score, 0.35);
+  if (item.type === "meal" && titleScore < 0.2 && /^(?:(?:group|hosted|working|casual|affordable|closing)\s+)*(?:breakfast|lunch|dinner|meal)\b/i.test(item.title)) return Math.min(score, 0.35);
   return score;
 }
 
@@ -109,6 +111,7 @@ export function selectStrongPlace(places: GooglePlace[], item: PlanItem, plan: P
 
 function contextualQuery(item: PlanItem, plan: Plan, adjacent?: { previous?: PlanItem; next?: PlanItem }) {
   if (/book(?:shop|store)|books/i.test(`${item.title} ${item.description}`)) return `${item.title}, ${item.location}, ${plan.location}`.slice(0, 300);
+  if (/coffee|cafe|bakery|waterfront|market/i.test(`${item.title} ${item.description}`)) return `${item.title}, ${item.type}, ${item.location}, ${plan.location}`.slice(0, 300);
   const context = [
     item.title, item.type, item.description, item.location, plan.location, plan.budgetLabel,
     `${plan.partySize} people`, plan.considerations.join(" "),
@@ -256,7 +259,7 @@ export function removeSemanticDuplicates(plan: Plan) {
 export function applyConstraintConfirmations(plan: Plan) {
   const context = `${plan.summary} ${plan.considerations.join(" ")}`;
   const mobility = /wheelchair|mobility|stairs|step-free|accessible/i.test(context);
-  const dietary = /celiac|coeliac|gluten|allerg|dietary/i.test(context);
+  const dietary = /celiac|coeliac|gluten|food allerg|nut allerg|dairy allerg|shellfish allerg/i.test(context);
   for (const item of plan.days.flatMap((day) => day.items)) {
     if (mobility && ["activity", "meal", "accommodation"].includes(item.type) && item.verification === "google-verified") {
       item.description += ` Accessibility needs confirmation${item.websiteUrl ? " on the official website" : " directly with the venue"}: verify step-free entrance, accessible restrooms, and whether the activity itself is suitable.`;
