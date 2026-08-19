@@ -232,8 +232,22 @@ export function CollaborationWorkspace() {
         location_name: item.location,
         estimated_cost_per_person: item.costPerPerson,
         travel_minutes: item.travelMinutes,
+        travel_mode: item.travelMode ?? null,
+        route_distance_meters: item.routeDistanceMeters ?? null,
         booking_status: item.status,
         verification_status: item.verification,
+        booking_url: item.bookingUrl,
+        google_maps_url: item.googleMapsUrl ?? null,
+        website_url: item.websiteUrl ?? null,
+        place_id: item.placeId ?? null,
+        latitude: item.latitude ?? null,
+        longitude: item.longitude ?? null,
+        business_status: item.businessStatus ?? null,
+        rating: item.rating ?? null,
+        user_rating_count: item.userRatingCount ?? null,
+        price_level: item.priceLevel ?? null,
+        regular_opening_hours: item.regularOpeningHours ?? null,
+        match_reason: item.matchReason ?? null,
       })));
       if (itemError) { setError(itemError.message); break; }
     }

@@ -26,12 +26,22 @@ export const planItemSchema = z.object({
   location: z.string(),
   costPerPerson: z.number(),
   travelMinutes: z.number().int(),
+  travelMode: z.enum(["walk", "drive"]).nullable().optional(),
+  routeDistanceMeters: z.number().int().nonnegative().nullable().optional(),
   status: z.enum(["idea", "selected", "needs-booking", "booked"]),
-  verification: z.enum(["planning-placeholder", "needs-live-verification", "verified"]),
+  verification: z.enum(["suggested", "google-verified", "live-availability", "planning-placeholder", "needs-live-verification", "verified"]),
   bookingUrl: z.string().nullable(),
+  googleMapsUrl: z.string().nullable().optional(),
+  websiteUrl: z.string().nullable().optional(),
   placeId: z.string().nullable().optional(),
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
+  businessStatus: z.string().nullable().optional(),
+  rating: z.number().min(0).max(5).nullable().optional(),
+  userRatingCount: z.number().int().nonnegative().nullable().optional(),
+  priceLevel: z.string().nullable().optional(),
+  regularOpeningHours: z.array(z.string()).nullable().optional(),
+  matchReason: z.string().nullable().optional(),
 });
 
 export const planDaySchema = z.object({

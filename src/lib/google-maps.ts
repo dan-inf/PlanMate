@@ -1,87 +1,132 @@
 import type { Plan, PlanItem } from "@/lib/plan-schema";
 
+export const PLACE_FIELD_MASK = [
+  "places.id", "places.displayName", "places.formattedAddress", "places.googleMapsUri",
+  "places.location", "places.businessStatus", "places.primaryType", "places.types",
+  "places.rating", "places.userRatingCount", "places.priceLevel",
+  "places.regularOpeningHours.weekdayDescriptions", "places.websiteUri",
+].join(",");
+
 type GooglePlace = {
   id?: string;
   displayName?: { text?: string };
   formattedAddress?: string;
   googleMapsUri?: string;
+  websiteUri?: string;
   location?: { latitude?: number; longitude?: number };
+  businessStatus?: string;
+  primaryType?: string;
+  types?: string[];
+  rating?: number;
+  userRatingCount?: number;
+  priceLevel?: string;
+  regularOpeningHours?: { weekdayDescriptions?: string[] };
 };
 
-type LocatedItem = PlanItem & {
-  latitude?: number | null;
-  longitude?: number | null;
-  placeId?: string | null;
-};
-
+type RouteLeg = { minutes: number; distanceMeters: number; mode: "walk" | "drive" };
 const placeTypes = new Set(["meal", "activity", "accommodation", "nightlife"]);
+const stopWords = new Set(["the", "a", "an", "in", "at", "of", "and", "or", "for", "with", "to"]);
 
-function placeQuery(item: PlanItem, plan: Plan) {
-  if (item.type === "meal") return `${item.title}, restaurant in ${item.location}, ${plan.location}`;
-  if (item.type === "accommodation") return `hotel or lodging in ${item.location}, ${plan.location}`;
-  return `${item.title} in ${item.location}, ${plan.location}`;
+function tokens(value: string) {
+  return new Set(value.toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ").filter((token) => token.length > 2 && !stopWords.has(token)));
 }
 
-async function findPlace(item: PlanItem, plan: Plan, apiKey: string) {
+function overlap(left: Set<string>, right: Set<string>) {
+  if (!left.size || !right.size) return 0;
+  let matches = 0;
+  for (const token of left) if (right.has(token)) matches += 1;
+  return matches / Math.min(left.size, right.size);
+}
+
+function expectedGoogleTypes(type: PlanItem["type"]) {
+  if (type === "meal") return new Set(["restaurant", "cafe", "bakery", "meal_takeaway"]);
+  if (type === "nightlife") return new Set(["bar", "night_club", "wine_bar"]);
+  if (type === "accommodation") return new Set(["hotel", "lodging", "resort_hotel", "hostel"]);
+  return new Set(["tourist_attraction", "museum", "park", "art_gallery", "performing_arts_theater", "amusement_center"]);
+}
+
+export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) {
+  if (!place.id || !place.displayName?.text || !place.formattedAddress) return 0;
+  if (place.businessStatus === "CLOSED_PERMANENTLY") return 0;
+  const titleScore = overlap(tokens(`${item.title} ${item.description}`), tokens(place.displayName.text));
+  const geographyScore = overlap(tokens(`${item.location} ${plan.location}`), tokens(place.formattedAddress));
+  const actualTypes = new Set([place.primaryType, ...(place.types ?? [])].filter(Boolean) as string[]);
+  const typeScore = [...expectedGoogleTypes(item.type)].some((type) => actualTypes.has(type)) ? 1 : 0;
+  return (geographyScore * 0.5) + (typeScore * 0.3) + (titleScore * 0.2);
+}
+
+export function selectStrongPlace(places: GooglePlace[], item: PlanItem, plan: Plan) {
+  return places
+    .map((place) => ({ place, score: scorePlaceMatch(place, item, plan) }))
+    .filter(({ place, score }) => place.businessStatus !== "CLOSED_PERMANENTLY" && score >= 0.42)
+    .sort((a, b) => b.score - a.score)[0] ?? null;
+}
+
+function contextualQuery(item: PlanItem, plan: Plan, adjacent?: { previous?: PlanItem; next?: PlanItem }) {
+  const context = [
+    item.title, item.type, item.description, item.location, plan.location, plan.budgetLabel,
+    `${plan.partySize} people`, plan.considerations.join(" "),
+    adjacent?.previous ? `after ${adjacent.previous.title}` : "",
+    adjacent?.next ? `before ${adjacent.next.title}` : "",
+  ].filter(Boolean).join(", ");
+  return context.slice(0, 700);
+}
+
+async function searchPlaces(textQuery: string, apiKey: string, pageSize = 5) {
   const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.location",
-    },
-    body: JSON.stringify({ textQuery: placeQuery(item, plan), pageSize: 1, languageCode: "en" }),
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": PLACE_FIELD_MASK },
+    body: JSON.stringify({ textQuery, pageSize, languageCode: "en", rankPreference: "RELEVANCE" }),
     cache: "no-store",
   });
   if (!response.ok) throw new Error(`Places API returned ${response.status}`);
-  const data = (await response.json()) as { places?: GooglePlace[] };
-  return data.places?.[0] ?? null;
+  return ((await response.json()) as { places?: GooglePlace[] }).places ?? [];
+}
+
+export function applyVerifiedPlace(item: PlanItem, place: GooglePlace, score: number) {
+  item.title = place.displayName?.text ?? item.title;
+  item.location = place.formattedAddress ?? item.location;
+  item.googleMapsUrl = place.googleMapsUri ?? null;
+  item.bookingUrl = place.googleMapsUri ?? null;
+  item.websiteUrl = place.websiteUri ?? null;
+  item.verification = "google-verified";
+  item.placeId = place.id ?? null;
+  item.latitude = place.location?.latitude ?? null;
+  item.longitude = place.location?.longitude ?? null;
+  item.businessStatus = place.businessStatus ?? null;
+  item.rating = place.rating ?? null;
+  item.userRatingCount = place.userRatingCount ?? null;
+  item.priceLevel = place.priceLevel ?? null;
+  item.regularOpeningHours = place.regularOpeningHours?.weekdayDescriptions ?? null;
+  item.matchReason = score >= 0.72 ? "Strong match for the requested place, area, and plan context." : "Matches the requested area and activity type; confirm it fits your preferences.";
+}
+
+export function normalizeSuggestedItem(item: PlanItem) {
+  if (!["google-verified", "live-availability", "verified"].includes(item.verification)) item.verification = "suggested";
+  return item;
 }
 
 export async function findAlternativePlaces(plan: Plan, item: PlanItem, instruction: string) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
   if (!apiKey) return [];
-  const venueType = item.type === "meal" ? "restaurant" : item.type === "nightlife" ? "bar or nightlife spot" : item.type;
-  const queries = [
-    `${instruction}. ${venueType} near ${item.location}, ${plan.location}`,
-    `${instruction}. Best ${venueType} in ${plan.location}`,
-    `${venueType} alternatives near ${item.location}, ${plan.location}`,
-  ];
   const found = new Map<string, GooglePlace>();
-  for (const textQuery of queries) {
-    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": apiKey,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.location",
-      },
-      body: JSON.stringify({ textQuery, pageSize: 10, languageCode: "en" }),
-      cache: "no-store",
-    });
-    if (!response.ok) throw new Error(`Places API returned ${response.status}`);
-    const data = (await response.json()) as { places?: GooglePlace[] };
-    for (const place of data.places ?? []) {
-      if (place.id && place.id !== item.placeId && place.displayName?.text && place.formattedAddress) found.set(place.id, place);
+  const queries = [
+    `${instruction}, ${contextualQuery(item, plan)}`,
+    `${instruction}, ${item.type} near ${item.location}, ${plan.location}`,
+    `${item.type} alternative, ${plan.budgetLabel}, ${plan.location}`,
+  ];
+  for (const query of queries) {
+    const places = await searchPlaces(query, apiKey, 8);
+    for (const place of places) {
+      if (place.id && place.id !== item.placeId && selectStrongPlace([place], item, plan)) found.set(place.id, place);
     }
     if (found.size >= 3) break;
   }
-  return [...found.values()]
-    .slice(0, 3)
-    .map((place, index): PlanItem => ({
-      ...item,
-      id: `${item.id}-alternative-${place.id ?? index}`,
-      title: place.displayName?.text ?? "Alternative",
-      description: `A Google-verified alternative matching: ${instruction}`,
-      location: place.formattedAddress ?? plan.location,
-      status: "needs-booking",
-      verification: "verified",
-      bookingUrl: place.googleMapsUri ?? null,
-      placeId: place.id ?? null,
-      latitude: place.location?.latitude ?? null,
-      longitude: place.location?.longitude ?? null,
-      travelMinutes: 0,
-    }));
+  return [...found.values()].slice(0, 3).map((place, index): PlanItem => {
+    const alternative = { ...item, id: `${item.id}-alternative-${place.id ?? index}`, travelMinutes: 0, travelMode: null, routeDistanceMeters: null };
+    applyVerifiedPlace(alternative, place, scorePlaceMatch(place, item, plan));
+    return alternative;
+  });
 }
 
 function durationMinutes(duration?: string) {
@@ -89,78 +134,63 @@ function durationMinutes(duration?: string) {
   return Number.isFinite(seconds) ? Math.max(1, Math.round(seconds / 60)) : null;
 }
 
-async function routeMinutes(origin: LocatedItem, destination: LocatedItem, apiKey: string) {
+function haversineMeters(origin: PlanItem, destination: PlanItem) {
   if (origin.latitude == null || origin.longitude == null || destination.latitude == null || destination.longitude == null) return null;
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const dLat = radians(destination.latitude - origin.latitude);
+  const dLon = radians(destination.longitude - origin.longitude);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(origin.latitude)) * Math.cos(radians(destination.latitude)) * Math.sin(dLon / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function chooseTravelMode(origin: PlanItem, destination: PlanItem): "walk" | "drive" {
+  const distance = haversineMeters(origin, destination);
+  return distance !== null && distance <= 2200 ? "walk" : "drive";
+}
+
+async function routeLeg(origin: PlanItem, destination: PlanItem, apiKey: string): Promise<RouteLeg | null> {
+  if (origin.latitude == null || origin.longitude == null || destination.latitude == null || destination.longitude == null) return null;
+  const mode = chooseTravelMode(origin, destination);
   const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
-    },
+    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters" },
     body: JSON.stringify({
       origin: { location: { latLng: { latitude: origin.latitude, longitude: origin.longitude } } },
       destination: { location: { latLng: { latitude: destination.latitude, longitude: destination.longitude } } },
-      travelMode: "DRIVE",
-      routingPreference: "TRAFFIC_AWARE",
-      computeAlternativeRoutes: false,
-      languageCode: "en-US",
-      units: "IMPERIAL",
-    }),
-    cache: "no-store",
+      travelMode: mode === "walk" ? "WALK" : "DRIVE",
+      ...(mode === "drive" ? { routingPreference: "TRAFFIC_AWARE" } : {}),
+      computeAlternativeRoutes: false, languageCode: "en-US", units: "IMPERIAL",
+    }), cache: "no-store",
   });
   if (!response.ok) throw new Error(`Routes API returned ${response.status}`);
-  const data = (await response.json()) as { routes?: Array<{ duration?: string }> };
-  return durationMinutes(data.routes?.[0]?.duration);
+  const route = ((await response.json()) as { routes?: Array<{ duration?: string; distanceMeters?: number }> }).routes?.[0];
+  const minutes = durationMinutes(route?.duration);
+  return minutes === null || route?.distanceMeters == null ? null : { minutes, distanceMeters: route.distanceMeters, mode };
 }
 
 export async function enrichPlanWithGoogle(plan: Plan) {
   const placesKey = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
   const routesKey = process.env.GOOGLE_ROUTES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
   const enriched: Plan = structuredClone(plan);
-  let placesVerified = 0;
-  let routesCalculated = 0;
-
+  let placesVerified = 0; let routesCalculated = 0;
+  for (const day of enriched.days) for (const item of day.items) normalizeSuggestedItem(item);
   if (placesKey) {
-    const candidates = enriched.days
-      .flatMap((day) => day.items)
-      .filter((item) => placeTypes.has(item.type) && item.verification !== "verified")
-      .slice(0, 10);
-    await Promise.all(candidates.map(async (item) => {
+    const candidates = enriched.days.flatMap((day) => day.items.map((item, index) => ({ item, previous: day.items[index - 1], next: day.items[index + 1] }))).filter(({ item }) => placeTypes.has(item.type) && !["google-verified", "live-availability", "verified"].includes(item.verification)).slice(0, 10);
+    await Promise.all(candidates.map(async ({ item, previous, next }) => {
       try {
-        const place = await findPlace(item, enriched, placesKey);
-        if (!place?.displayName?.text || !place.formattedAddress) return;
-        item.title = place.displayName.text;
-        item.location = place.formattedAddress;
-        item.bookingUrl = place.googleMapsUri ?? null;
-        item.verification = "verified";
-        item.placeId = place.id ?? null;
-        item.latitude = place.location?.latitude ?? null;
-        item.longitude = place.location?.longitude ?? null;
-        placesVerified += 1;
-      } catch (error) {
-        console.error("Places enrichment failed", error);
-      }
+        const places = await searchPlaces(contextualQuery(item, enriched, { previous, next }), placesKey);
+        const match = selectStrongPlace(places, item, enriched);
+        if (!match) return;
+        applyVerifiedPlace(item, match.place, match.score); placesVerified += 1;
+      } catch (error) { console.warn("Places enrichment unavailable", error instanceof Error ? error.message : "unknown error"); }
     }));
   }
-
-  if (routesKey) {
-    for (const day of enriched.days) {
-      for (let index = 1; index < day.items.length; index += 1) {
-        const previous = day.items[index - 1] as LocatedItem;
-        const current = day.items[index] as LocatedItem;
-        try {
-          const minutes = await routeMinutes(previous, current, routesKey);
-          if (minutes !== null) {
-            current.travelMinutes = minutes;
-            routesCalculated += 1;
-          }
-        } catch (error) {
-          console.error("Routes enrichment failed", error);
-        }
-      }
-    }
+  if (routesKey) for (const day of enriched.days) for (let index = 1; index < day.items.length; index += 1) {
+    const current = day.items[index];
+    try {
+      const leg = await routeLeg(day.items[index - 1], current, routesKey);
+      if (leg) { current.travelMinutes = leg.minutes; current.travelMode = leg.mode; current.routeDistanceMeters = leg.distanceMeters; routesCalculated += 1; }
+    } catch (error) { console.warn("Route enrichment unavailable", error instanceof Error ? error.message : "unknown error"); }
   }
-
   return { plan: enriched, placesVerified, routesCalculated };
 }

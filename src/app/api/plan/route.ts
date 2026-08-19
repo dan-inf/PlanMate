@@ -53,9 +53,9 @@ Rules:
 - Prefer a relaxed, realistic schedule with buffers over an overpacked day.
 - For plans longer than one day, include lodging/check-in/check-out as accommodation items. Do not mix accommodation into the activity sequence conceptually: use accommodation only for the stay, check-in, checkout, and overnight context; use meal, activity, transportation, free-time, or nightlife for the daily itinerary.
 - Do not invent real venue names, live availability, opening hours, exact travel times, prices, ratings, or booking URLs.
-- Until live location tools are connected, describe the kind of venue and the best neighborhood/area. Mark it needs-live-verification.
-- Never mark a place verified yourself and leave placeId, latitude, and longitude empty. The server verifies places after generation.
-- Use planning-placeholder only for items that do not claim live facts.
+- Describe the kind of venue and best neighborhood/area so the server can find a strong real-place match. Mark it suggested.
+- Never mark a place Google verified or live availability yourself. Leave provider fields empty; the server verifies places after generation.
+- Google verified means factual place fields came from Google, not endorsement or availability.
 - Use 0 for unknown costs or travel minutes rather than inventing a number.
 - Include 1-3 useful considerations, especially what needs confirmation.
 - Keep titles warm, concise, and consumer-friendly.`,

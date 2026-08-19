@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { enrichPlanWithGoogle, findAlternativePlaces } from "@/lib/google-maps";
 import { planItemSchema, planSchema } from "@/lib/plan-schema";
+import { replacePlanItem } from "@/lib/plan-edits";
 
 export const runtime = "nodejs";
 
@@ -47,11 +48,8 @@ export async function POST(request: Request) {
     }
 
     if (body.operation === "replace") {
-      const updated = structuredClone(body.plan);
-      const itemIndex = updated.days[body.dayIndex]?.items.findIndex((item) => item.id === body.itemId) ?? -1;
-      if (itemIndex < 0) return NextResponse.json({ error: "That plan item is no longer available." }, { status: 400 });
-      const original = updated.days[body.dayIndex].items[itemIndex];
-      updated.days[body.dayIndex].items[itemIndex] = { ...body.replacement, id: original.id, time: original.time };
+      const updated = replacePlanItem(body.plan, body.dayIndex, body.itemId, body.replacement);
+      if (!updated) return NextResponse.json({ error: "That plan item is no longer available." }, { status: 400 });
       const enriched = await enrichPlanWithGoogle(updated);
       return NextResponse.json({ plan: enriched.plan });
     }
@@ -80,7 +78,7 @@ Rules:
 - Keep stable ids for every existing item. Give a newly added item a new short unique id.
 - Recalculate budget lines and estimatedTotalPerPerson when the edit changes cost, using 0 for unknown costs.
 - Do not invent live venue names, addresses, prices, availability, ratings, booking URLs, or travel times.
-- New place-based items should describe the desired venue type and area, use needs-live-verification, and leave place data empty. Google will verify places after this step.
+- New place-based items should describe the desired venue type and area, use suggested, and leave provider data empty. Google may verify a strong match after this step.
 - Keep accommodation separate from activities on multi-day plans.
 - Use 0 for unknown travel time or cost.`,
         },

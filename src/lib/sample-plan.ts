@@ -25,7 +25,7 @@ export const samplePlan: Plan = {
           costPerPerson: 400,
           travelMinutes: 0,
           status: "selected",
-          verification: "planning-placeholder",
+          verification: "suggested",
           bookingUrl: null,
         },
         {
@@ -38,7 +38,7 @@ export const samplePlan: Plan = {
           costPerPerson: 95,
           travelMinutes: 8,
           status: "needs-booking",
-          verification: "needs-live-verification",
+          verification: "suggested",
           bookingUrl: null,
         },
       ],
@@ -57,7 +57,7 @@ export const samplePlan: Plan = {
           costPerPerson: 145,
           travelMinutes: 0,
           status: "needs-booking",
-          verification: "needs-live-verification",
+          verification: "suggested",
           bookingUrl: null,
         },
         {
@@ -70,7 +70,7 @@ export const samplePlan: Plan = {
           costPerPerson: 95,
           travelMinutes: 24,
           status: "needs-booking",
-          verification: "needs-live-verification",
+          verification: "suggested",
           bookingUrl: null,
         },
         {
@@ -83,7 +83,7 @@ export const samplePlan: Plan = {
           costPerPerson: 65,
           travelMinutes: 12,
           status: "idea",
-          verification: "needs-live-verification",
+          verification: "suggested",
           bookingUrl: null,
         },
         {
@@ -96,7 +96,7 @@ export const samplePlan: Plan = {
           costPerPerson: 90,
           travelMinutes: 14,
           status: "idea",
-          verification: "planning-placeholder",
+          verification: "suggested",
           bookingUrl: null,
         },
         {
@@ -109,7 +109,7 @@ export const samplePlan: Plan = {
           costPerPerson: 140,
           travelMinutes: 18,
           status: "needs-booking",
-          verification: "needs-live-verification",
+          verification: "suggested",
           bookingUrl: null,
         },
       ],

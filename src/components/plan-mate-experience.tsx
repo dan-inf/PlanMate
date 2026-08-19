@@ -519,11 +519,12 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
                       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#1e2822]/7 pt-3 text-xs text-[#718078]">
                         <span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{item.location}</span>
                         <span className="flex items-center gap-1.5"><CircleDollarSign className="size-3.5" />{formatMoney(item.costPerPerson, displayedPlan.currency)} / person</span>
-                        {item.travelMinutes > 0 ? <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{item.travelMinutes} min</span> : null}
-                        {item.verification === "verified" ? <span className="font-bold text-[#2b684a]">Google verified</span> : null}
+                        {item.travelMinutes > 0 ? <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{item.travelMinutes} min {item.travelMode ?? "travel"}</span> : null}
+                        {["verified", "google-verified"].includes(item.verification) ? <span className="font-bold text-[#2b684a]">Google verified</span> : item.verification === "live-availability" ? <span className="font-bold text-[#2b684a]">Live availability</span> : <span className="font-semibold text-[#8a6b43]">Suggested</span>}
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-4">
-                        {item.bookingUrl ? <a href={item.bookingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">View in Google Maps<ExternalLink className="size-3" /></a> : null}
+                        {(item.googleMapsUrl ?? item.bookingUrl) ? <a href={item.googleMapsUrl ?? item.bookingUrl ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">View in Google Maps<ExternalLink className="size-3" /></a> : null}
+                        {item.websiteUrl ? <a href={item.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">Official website<ExternalLink className="size-3" /></a> : null}
                         {plan && ["meal", "activity", "nightlife"].includes(item.type) ? <button type="button" onClick={() => openEditor({ kind: "alternatives", dayIndex: activeDay, item })} className="text-xs font-bold text-[#c3573b]">Explore alternatives</button> : null}
                         {plan ? <button type="button" onClick={() => removeItem(activeDay, item)} disabled={editing} className="inline-flex items-center gap-1 text-xs font-bold text-[#7c817e] transition hover:text-[#a4452f] disabled:opacity-50"><Trash2 className="size-3" />Remove</button> : null}
                       </div>
@@ -570,7 +571,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
 
           <div className="mt-6 flex items-start gap-2.5 text-xs leading-5 text-[#718078]">
             <Map className="mt-0.5 size-4 shrink-0 text-[#d15d3e]" />
-            Venue details, prices, travel times, and availability are labeled as planning placeholders until live Maps data is connected.
+            Suggested places are unverified concepts. Google verified means place details came from Google; it does not mean endorsement or live availability.
           </div>
         </div>
       </section>
@@ -628,7 +629,7 @@ function StackedPlanDay({ day, dayIndex, multiDay, currency, editable, editing, 
           <div className="rounded-[18px] border border-[#1e2822]/8 bg-white p-4 transition hover:border-[#194d3a]/20 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[#d15d3e]">{item.time}</p><h4 className="mt-1.5 text-[17px] font-bold tracking-[-0.02em] text-[#25362d]">{item.title}</h4></div><span className={`self-start rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${item.status === "selected" ? "bg-[#e4efe7] text-[#2b684a]" : "bg-[#fff0e7] text-[#a95538]"}`}>{statusLabels[item.status]}</span></div>
             <p className="mt-2 text-sm leading-6 text-[#718078]">{item.description}</p>
-            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#1e2822]/7 pt-3 text-xs text-[#718078]"><span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{item.location}</span><span className="flex items-center gap-1.5"><CircleDollarSign className="size-3.5" />{formatMoney(item.costPerPerson, currency)} / person</span>{item.travelMinutes > 0 ? <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{item.travelMinutes} min</span> : null}{item.verification === "verified" ? <span className="font-bold text-[#2b684a]">Google verified</span> : null}</div>
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#1e2822]/7 pt-3 text-xs text-[#718078]"><span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{item.location}</span><span className="flex items-center gap-1.5"><CircleDollarSign className="size-3.5" />{formatMoney(item.costPerPerson, currency)} / person</span>{item.travelMinutes > 0 ? <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{item.travelMinutes} min {item.travelMode ?? "travel"}</span> : null}{["verified", "google-verified"].includes(item.verification) ? <span className="font-bold text-[#2b684a]">Google verified</span> : <span className="font-semibold text-[#8a6b43]">Suggested</span>}</div>
             <div className="mt-3 flex flex-wrap items-center gap-4">{item.bookingUrl ? <a href={item.bookingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">View in Google Maps<ExternalLink className="size-3" /></a> : null}{editable && ["meal", "activity", "nightlife"].includes(item.type) ? <button type="button" onClick={() => onExplore(item)} className="text-xs font-bold text-[#c3573b]">Explore alternatives</button> : null}{editable ? <button type="button" onClick={() => onRemove(item)} disabled={editing} className="inline-flex items-center gap-1 text-xs font-bold text-[#7c817e] hover:text-[#a4452f] disabled:opacity-50"><Trash2 className="size-3" />Remove</button> : null}</div>
           </div>
         </article>
