@@ -59,6 +59,7 @@ export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) 
   // A secondary restaurant tag is not enough to turn a bar or lounge into a
   // meal recommendation. Prefer a primary food-service type for meal slots.
   if (item.type === "meal" && place.primaryType && !/(restaurant|cafe|bakery|meal_takeaway)/.test(place.primaryType)) return Math.min(score, 0.35);
+  if (item.type === "meal" && /\b(dinner|supper|evening meal)\b/i.test(`${item.title} ${item.description}`) && place.primaryType && !/restaurant/.test(place.primaryType)) return Math.min(score, 0.35);
   // A generic walk, neighborhood exploration, or flexible activity is not a venue.
   // Require some name/context agreement before attaching a specific Google place.
   if (item.type === "activity" && titleScore < 0.2) return Math.min(score, 0.35);
@@ -184,7 +185,9 @@ async function routeLeg(origin: PlanItem, destination: PlanItem, apiKey: string)
 }
 
 export function keepSingleAccommodationBase(plan: Plan) {
-  if (!/(single|same|central|downtown).{0,20}(base|stay|hotel|lodging)|minimal driving|downtown-based/i.test(`${plan.summary} ${plan.considerations.join(" ")}`)) return plan;
+  const explicitlySingleBase = /(single|same|central|downtown).{0,20}(base|stay|hotel|lodging)|minimal driving|downtown-based/i.test(`${plan.summary} ${plan.considerations.join(" ")}`);
+  const locationSuggestsOneBase = !/\b(?:and|to)\b|\//i.test(plan.location);
+  if (!explicitlySingleBase && !locationSuggestsOneBase) return plan;
   const stays = plan.days.flatMap((day) => day.items).filter((item) => item.type === "accommodation");
   const base = stays.find((item) => ["google-verified", "verified"].includes(item.verification) && item.placeId);
   if (!base) return plan;

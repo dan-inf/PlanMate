@@ -45,6 +45,23 @@ test("a bar with only a secondary restaurant type is rejected for a meal", () =>
   assert.equal(selectStrongPlace([place], meal, source), null);
 });
 
+test("a cafe is rejected for a dinner recommendation", () => {
+  const dinner = item({ title: "Team dinner", description: "A quieter group dinner." });
+  const source = plan(dinner);
+  const cafe = {
+    id: "cafe",
+    displayName: { text: "Neighborhood Cafe" },
+    formattedAddress: "Seattle, WA, USA",
+    businessStatus: "OPERATIONAL",
+    primaryType: "cafe",
+    types: ["cafe", "restaurant"],
+    rating: 4.8,
+    userRatingCount: 800,
+  };
+
+  assert.equal(selectStrongPlace([cafe], dinner, { ...source, location: "Seattle, Washington" }), null);
+});
+
 test("generic neighborhood activity does not become an arbitrary landmark", () => {
   const activity = item({ type: "activity", title: "Relaxed SoHo stroll", description: "Walk quieter streets and browse storefronts" });
   const source = plan(activity);
@@ -104,4 +121,19 @@ test("single-base plan keeps the same verified accommodation", () => {
   source.days[0].items = [first]; source.days.push({ label: "Saturday", date: "", items: [second] });
   keepSingleAccommodationBase(source);
   assert.equal(second.placeId, "fairmont"); assert.equal(second.id, "hotel-2"); assert.equal(second.description, "Second overnight at the same lodging");
+});
+
+test("single-city plan does not switch hotels only for checkout", () => {
+  const source = plan();
+  source.location = "Seattle, Washington";
+  const first = item({ id: "hotel-1", type: "accommodation", title: "Downtown Hotel", description: "Check in", verification: "google-verified", placeId: "downtown", location: "Seattle" });
+  const checkout = item({ id: "hotel-2", type: "accommodation", title: "Airport Hotel", description: "Complete hotel checkout and depart", verification: "google-verified", placeId: "airport", location: "SeaTac" });
+  source.days[0].items = [first];
+  source.days.push({ label: "Day 2", date: "", items: [checkout] });
+
+  keepSingleAccommodationBase(source);
+
+  assert.equal(checkout.placeId, "downtown");
+  assert.equal(checkout.id, "hotel-2");
+  assert.match(checkout.description, /checkout/i);
 });
