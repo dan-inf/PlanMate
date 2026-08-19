@@ -5,7 +5,6 @@ import {
   Building2,
   CalendarDays,
   Check,
-  ChevronRight,
   CircleDollarSign,
   Clock3,
   ExternalLink,
@@ -95,8 +94,8 @@ const statusLabels: Record<PlanItem["status"], string> = {
 };
 
 type DraftEditor =
-  | { kind: "alternatives"; item: PlanItem }
-  | { kind: "add"; afterIndex: number };
+  | { kind: "alternatives"; dayIndex: number; item: PlanItem }
+  | { kind: "add"; dayIndex: number; afterIndex: number };
 
 function formatMoney(value: number, currency = "USD") {
   if (!value) return "TBD";
@@ -112,7 +111,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
   const [category, setCategory] = useState<PlanCategory>("group-trip");
   const [prompt, setPrompt] = useState("");
   const [plan, setPlan] = useState<Plan | null>(null);
-  const [activeDay, setActiveDay] = useState(0);
+  const [activeDay] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -137,7 +136,6 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
         setPlan(pending.plan);
         setCategory(pending.category);
         setPrompt(pending.prompt);
-        setActiveDay(0);
       });
     } catch {
       window.sessionStorage.removeItem(pendingPlanStorageKey);
@@ -176,7 +174,6 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       const pending: PendingGeneratedPlan = { plan: data.plan, category, prompt };
       window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify(pending));
       setPlan(data.plan);
-      setActiveDay(0);
       router.push("/plan/draft");
     } catch (caughtError) {
       setError(
@@ -238,11 +235,11 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     setEditing(true); setError(null); setEditError(null);
     try {
       if (editor.kind === "alternatives") {
-        const data = await requestEdit({ operation: "alternatives", plan, dayIndex: activeDay, itemId: editor.item.id, instruction: editInstruction });
+        const data = await requestEdit({ operation: "alternatives", plan, dayIndex: editor.dayIndex, itemId: editor.item.id, instruction: editInstruction });
         setAlternatives(data.alternatives ?? []);
         setSearchedAlternatives(true);
       } else {
-        const data = await requestEdit({ operation: "add", plan, dayIndex: activeDay, insertAfterIndex: editor.afterIndex, instruction: editInstruction });
+        const data = await requestEdit({ operation: "add", plan, dayIndex: editor.dayIndex, insertAfterIndex: editor.afterIndex, instruction: editInstruction });
         if (data.plan) commitDraft(data.plan);
         closeEditor();
       }
@@ -256,7 +253,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     if (!plan || editor?.kind !== "alternatives") return;
     setEditing(true); setError(null); setEditError(null);
     try {
-      const data = await requestEdit({ operation: "replace", plan, dayIndex: activeDay, itemId: editor.item.id, replacement });
+      const data = await requestEdit({ operation: "replace", plan, dayIndex: editor.dayIndex, itemId: editor.item.id, replacement });
       if (data.plan) commitDraft(data.plan);
       closeEditor();
     } catch (caughtError) {
@@ -265,11 +262,11 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     } finally { setEditing(false); }
   }
 
-  async function removeItem(item: PlanItem) {
+  async function removeItem(dayIndex: number, item: PlanItem) {
     if (!plan) return;
     setEditing(true); setError(null);
     try {
-      const data = await requestEdit({ operation: "remove", plan, dayIndex: activeDay, itemId: item.id, instruction: `Remove ${item.title} and reflow the remaining day.` });
+      const data = await requestEdit({ operation: "remove", plan, dayIndex, itemId: item.id, instruction: `Remove ${item.title} and reflow the remaining day.` });
       if (data.plan) commitDraft(data.plan);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not remove that stop.");
@@ -294,12 +291,8 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
 
   const displayedPlan = plan ?? samplePlan;
   const activeItems = displayedPlan.days[activeDay]?.items ?? [];
-  const accommodationItems = displayedPlan.days.length > 1
-    ? activeItems.filter((item) => item.type === "accommodation")
-    : [];
-  const activityItems = displayedPlan.days.length > 1
-    ? activeItems.filter((item) => item.type !== "accommodation")
-    : activeItems;
+  const accommodationItems = displayedPlan.days.length > 1 ? activeItems.filter((item) => item.type === "accommodation") : [];
+  const activityItems = displayedPlan.days.length > 1 ? activeItems.filter((item) => item.type !== "accommodation") : activeItems;
 
   if (draftMode && !plan) {
     return <main className="grid min-h-screen place-items-center bg-[#e9eee8]"><LoaderCircle className="size-8 animate-spin text-[#194d3a]" /></main>;
@@ -466,27 +459,9 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
 
           <div className="grid overflow-hidden rounded-[28px] border border-[#1e2822]/10 bg-[#fffdf8] shadow-[0_30px_80px_rgba(35,48,40,0.12)] lg:grid-cols-[260px_minmax(0,1fr)_310px]">
             <aside className="border-b border-[#1e2822]/10 bg-[#f7f3eb] p-5 lg:border-b-0 lg:border-r lg:p-6">
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
-                {displayedPlan.days.map((day, index) => (
-                  <button
-                    key={`${day.label}-${index}`}
-                    type="button"
-                    onClick={() => setActiveDay(index)}
-                    className={`flex items-center justify-between rounded-2xl px-4 py-3.5 text-left transition ${
-                      activeDay === index
-                        ? "bg-[#194d3a] text-white shadow-md"
-                        : "text-[#526259] hover:bg-white"
-                    }`}
-                  >
-                    <span>
-                      <span className="block text-sm font-bold">{day.label}</span>
-                      <span className={`mt-0.5 block text-xs ${activeDay === index ? "text-white/65" : "text-[#8a958e]"}`}>
-                        {day.date}
-                      </span>
-                    </span>
-                    <ChevronRight className="size-4 opacity-60" />
-                  </button>
-                ))}
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#d15d3e]">At a glance</p>
+                <p className="mt-2 text-sm leading-6 text-[#6d7a72]">{displayedPlan.days.length} {displayedPlan.days.length === 1 ? "day" : "days"}, arranged in one continuous itinerary.</p>
               </div>
 
               <div className="mt-6 border-t border-[#1e2822]/10 pt-6">
@@ -500,6 +475,10 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
             </aside>
 
             <div className="min-w-0 p-5 sm:p-8 lg:p-9">
+              <div className="divide-y divide-[#1e2822]/12">
+                {displayedPlan.days.map((day, dayIndex) => <StackedPlanDay key={`${day.label}-${dayIndex}`} day={day} dayIndex={dayIndex} multiDay={displayedPlan.days.length > 1} currency={displayedPlan.currency} editable={Boolean(plan)} editing={editing} onExplore={(item) => openEditor({ kind: "alternatives", dayIndex, item })} onRemove={(item) => removeItem(dayIndex, item)} onAdd={(afterIndex) => openEditor({ kind: "add", dayIndex, afterIndex })} />)}
+              </div>
+              <div className="hidden">
               <div className="mb-7 flex items-center justify-between">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d15d3e]">Day {activeDay + 1}</p>
@@ -545,34 +524,20 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-4">
                         {item.bookingUrl ? <a href={item.bookingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">View in Google Maps<ExternalLink className="size-3" /></a> : null}
-                        {plan && ["meal", "activity", "nightlife"].includes(item.type) ? <button type="button" onClick={() => openEditor({ kind: "alternatives", item })} className="text-xs font-bold text-[#c3573b]">Explore alternatives</button> : null}
-                        {plan ? <button type="button" onClick={() => removeItem(item)} disabled={editing} className="inline-flex items-center gap-1 text-xs font-bold text-[#7c817e] transition hover:text-[#a4452f] disabled:opacity-50"><Trash2 className="size-3" />Remove</button> : null}
+                        {plan && ["meal", "activity", "nightlife"].includes(item.type) ? <button type="button" onClick={() => openEditor({ kind: "alternatives", dayIndex: activeDay, item })} className="text-xs font-bold text-[#c3573b]">Explore alternatives</button> : null}
+                        {plan ? <button type="button" onClick={() => removeItem(activeDay, item)} disabled={editing} className="inline-flex items-center gap-1 text-xs font-bold text-[#7c817e] transition hover:text-[#a4452f] disabled:opacity-50"><Trash2 className="size-3" />Remove</button> : null}
                       </div>
                     </div>
                   </article>
-                  {plan ? <div className="relative z-20 ml-14 flex h-10 items-center"><button type="button" onClick={() => openEditor({ kind: "add", afterIndex: displayedPlan.days[activeDay].items.findIndex((candidate) => candidate.id === item.id) })} className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[#194d3a]/25 bg-[#fffdf8] px-3 py-1.5 text-xs font-bold text-[#315d45] transition hover:border-[#194d3a]/50 hover:bg-white"><Plus className="size-3.5" />Add a stop here</button></div> : null}
+                  {plan ? <div className="relative z-20 ml-14 flex h-10 items-center"><button type="button" onClick={() => openEditor({ kind: "add", dayIndex: activeDay, afterIndex: displayedPlan.days[activeDay].items.findIndex((candidate) => candidate.id === item.id) })} className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[#194d3a]/25 bg-[#fffdf8] px-3 py-1.5 text-xs font-bold text-[#315d45] transition hover:border-[#194d3a]/50 hover:bg-white"><Plus className="size-3.5" />Add a stop here</button></div> : null}
                   </div>
                 ))}
+              </div>
               </div>
             </div>
 
             <aside className="border-t border-[#1e2822]/10 bg-[#f7f3eb] p-5 lg:border-l lg:border-t-0 lg:p-6">
-              <div className="rounded-[20px] bg-[#194d3a] p-5 text-white shadow-lg shadow-[#194d3a]/10">
-                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#f1c47b]">
-                  <CircleDollarSign className="size-4" />
-                  Estimated cost
-                </div>
-                <p className="mt-4 text-3xl font-bold tracking-[-0.05em]">
-                  {formatMoney(displayedPlan.estimatedTotalPerPerson, displayedPlan.currency)}
-                </p>
-                <p className="mt-1 text-sm text-white/60">per person</p>
-                <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/15">
-                  <div className="h-full w-[88%] rounded-full bg-[#efbd72]" />
-                </div>
-                <p className="mt-2 text-xs text-white/55">Target: {displayedPlan.budgetLabel}</p>
-              </div>
-
-              <div className="mt-6">
+              <div>
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-bold">Budget snapshot</h4>
                   <button className="text-xs font-bold text-[#c3573b]">View all</button>
@@ -645,4 +610,30 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       </footer>
     </main>
   );
+}
+
+function StackedPlanDay({ day, dayIndex, multiDay, currency, editable, editing, onExplore, onRemove, onAdd }: { day: Plan["days"][number]; dayIndex: number; multiDay: boolean; currency: string; editable: boolean; editing: boolean; onExplore: (item: PlanItem) => void; onRemove: (item: PlanItem) => void; onAdd: (afterIndex: number) => void }) {
+  const accommodations = multiDay ? day.items.filter((item) => item.type === "accommodation") : [];
+  const activities = multiDay ? day.items.filter((item) => item.type !== "accommodation") : day.items;
+  return <section className="py-9 first:pt-0 last:pb-0">
+    <div className="mb-7 flex items-end justify-between gap-4">
+      <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d15d3e]">Day {dayIndex + 1} · {day.date}</p><h3 className="mt-1 text-2xl font-bold tracking-[-0.03em]">{day.label}</h3></div>
+      <span className="text-xs font-semibold text-[#8a958e]">{activities.length} {activities.length === 1 ? "stop" : "stops"}</span>
+    </div>
+    {accommodations.length ? <div className="mb-6 rounded-[18px] border border-[#194d3a]/10 bg-[#eef3ed] px-4 py-3.5"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-[#315d45]"><Building2 className="size-4" />Your stay</div>{accommodations.map((item) => <div key={item.id} className="mt-3"><p className="text-sm font-bold text-[#25362d]">{item.title}</p><p className="mt-1 text-sm leading-6 text-[#6d7a72]">{item.description}</p><p className="mt-1 text-xs text-[#718078]">{item.location}</p></div>)}</div> : null}
+    <div className="relative space-y-3 before:absolute before:bottom-7 before:left-[19px] before:top-7 before:w-px before:bg-[#1e2822]/10">
+      {activities.map((item, index) => <div key={item.id} className="relative">
+        <article className="relative grid grid-cols-[40px_minmax(0,1fr)] gap-4">
+          <div className="relative z-10 mt-5 grid size-10 place-items-center rounded-full border-4 border-[#fffdf8] bg-[#e8eee8] text-[#194d3a]">{index === 0 ? <MapPin className="size-4" /> : <Clock3 className="size-4" />}</div>
+          <div className="rounded-[18px] border border-[#1e2822]/8 bg-white p-4 transition hover:border-[#194d3a]/20 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[#d15d3e]">{item.time}</p><h4 className="mt-1.5 text-[17px] font-bold tracking-[-0.02em] text-[#25362d]">{item.title}</h4></div><span className={`self-start rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] ${item.status === "selected" ? "bg-[#e4efe7] text-[#2b684a]" : "bg-[#fff0e7] text-[#a95538]"}`}>{statusLabels[item.status]}</span></div>
+            <p className="mt-2 text-sm leading-6 text-[#718078]">{item.description}</p>
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[#1e2822]/7 pt-3 text-xs text-[#718078]"><span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{item.location}</span><span className="flex items-center gap-1.5"><CircleDollarSign className="size-3.5" />{formatMoney(item.costPerPerson, currency)} / person</span>{item.travelMinutes > 0 ? <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{item.travelMinutes} min</span> : null}{item.verification === "verified" ? <span className="font-bold text-[#2b684a]">Google verified</span> : null}</div>
+            <div className="mt-3 flex flex-wrap items-center gap-4">{item.bookingUrl ? <a href={item.bookingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">View in Google Maps<ExternalLink className="size-3" /></a> : null}{editable && ["meal", "activity", "nightlife"].includes(item.type) ? <button type="button" onClick={() => onExplore(item)} className="text-xs font-bold text-[#c3573b]">Explore alternatives</button> : null}{editable ? <button type="button" onClick={() => onRemove(item)} disabled={editing} className="inline-flex items-center gap-1 text-xs font-bold text-[#7c817e] hover:text-[#a4452f] disabled:opacity-50"><Trash2 className="size-3" />Remove</button> : null}</div>
+          </div>
+        </article>
+        {editable ? <div className="relative z-20 ml-14 flex h-10 items-center"><button type="button" onClick={() => onAdd(day.items.findIndex((candidate) => candidate.id === item.id))} className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[#194d3a]/25 bg-[#fffdf8] px-3 py-1.5 text-xs font-bold text-[#315d45]"><Plus className="size-3.5" />Add a stop here</button></div> : null}
+      </div>)}
+    </div>
+  </section>;
 }

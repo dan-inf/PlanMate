@@ -41,24 +41,32 @@ async function findPlace(item: PlanItem, plan: Plan, apiKey: string) {
 export async function findAlternativePlaces(plan: Plan, item: PlanItem, instruction: string) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
   if (!apiKey) return [];
-  const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": apiKey,
-      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.location",
-    },
-    body: JSON.stringify({
-      textQuery: `${instruction}. ${item.type === "meal" ? "Restaurant" : item.type} near ${item.location}, ${plan.location}`,
-      pageSize: 5,
-      languageCode: "en",
-    }),
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(`Places API returned ${response.status}`);
-  const data = (await response.json()) as { places?: GooglePlace[] };
-  return (data.places ?? [])
-    .filter((place) => place.id && place.id !== item.placeId && place.displayName?.text && place.formattedAddress)
+  const venueType = item.type === "meal" ? "restaurant" : item.type === "nightlife" ? "bar or nightlife spot" : item.type;
+  const queries = [
+    `${instruction}. ${venueType} near ${item.location}, ${plan.location}`,
+    `${instruction}. Best ${venueType} in ${plan.location}`,
+    `${venueType} alternatives near ${item.location}, ${plan.location}`,
+  ];
+  const found = new Map<string, GooglePlace>();
+  for (const textQuery of queries) {
+    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": apiKey,
+        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.location",
+      },
+      body: JSON.stringify({ textQuery, pageSize: 10, languageCode: "en" }),
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`Places API returned ${response.status}`);
+    const data = (await response.json()) as { places?: GooglePlace[] };
+    for (const place of data.places ?? []) {
+      if (place.id && place.id !== item.placeId && place.displayName?.text && place.formattedAddress) found.set(place.id, place);
+    }
+    if (found.size >= 3) break;
+  }
+  return [...found.values()]
     .slice(0, 3)
     .map((place, index): PlanItem => ({
       ...item,
