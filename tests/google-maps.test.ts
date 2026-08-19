@@ -27,6 +27,13 @@ test("weak or geographically implausible match remains suggested", () => {
   assert.equal(source.days[0].items[0].verification, "suggested");
 });
 
+test("generic neighborhood activity does not become an arbitrary landmark", () => {
+  const activity = item({ type: "activity", title: "Relaxed SoHo stroll", description: "Walk quieter streets and browse storefronts" });
+  const source = plan(activity);
+  const landmark = { id: "building", displayName: { text: "Little Singer Building" }, formattedAddress: "561 Broadway, New York, NY", primaryType: "tourist_attraction" };
+  assert.equal(selectStrongPlace([landmark], activity, source), null);
+});
+
 test("verified provider fields map without claiming availability", () => {
   const target = item();
   applyVerifiedPlace(target, { id: "place-1", displayName: { text: "Test Trattoria" }, formattedAddress: "1 Spring St, New York, NY", googleMapsUri: "https://maps.google.com/test", websiteUri: "https://example.com", location: { latitude: 40.72, longitude: -74 }, businessStatus: "OPERATIONAL", rating: 4.6, userRatingCount: 321, priceLevel: "PRICE_LEVEL_MODERATE", regularOpeningHours: { weekdayDescriptions: ["Friday: 5–11 PM"] } }, 0.8);

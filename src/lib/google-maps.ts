@@ -52,7 +52,11 @@ export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) 
   const geographyScore = overlap(tokens(`${item.location} ${plan.location}`), tokens(place.formattedAddress));
   const actualTypes = new Set([place.primaryType, ...(place.types ?? [])].filter(Boolean) as string[]);
   const typeScore = [...expectedGoogleTypes(item.type)].some((type) => actualTypes.has(type)) ? 1 : 0;
-  return (geographyScore * 0.5) + (typeScore * 0.3) + (titleScore * 0.2);
+  const score = (geographyScore * 0.5) + (typeScore * 0.3) + (titleScore * 0.2);
+  // A generic walk, neighborhood exploration, or flexible activity is not a venue.
+  // Require some name/context agreement before attaching a specific Google place.
+  if (item.type === "activity" && titleScore < 0.2) return Math.min(score, 0.35);
+  return score;
 }
 
 export function selectStrongPlace(places: GooglePlace[], item: PlanItem, plan: Plan) {
