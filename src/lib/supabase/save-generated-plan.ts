@@ -26,11 +26,15 @@ export async function persistGeneratedPlan(
     saveKey = crypto.randomUUID();
     window.sessionStorage.setItem(storageKey, saveKey);
   }
+  void supabase.rpc("track_product_event", { event_name: "free_creation_save_started", properties: {} });
   const { data, error } = await supabase.rpc("persist_generated_plan", {
     payload: { plan, category, sourceSnapshot },
     save_key: saveKey,
   });
-  if (error || !data) throw new Error(error?.message ?? "Could not save this plan.");
+  if (error || !data) {
+    void supabase.rpc("track_product_event", { event_name: "free_creation_consume_failed", properties: { stage: "persist" } });
+    throw new Error(error?.message ?? "Could not save this plan.");
+  }
   window.sessionStorage.removeItem(storageKey);
   return data as string;
 }

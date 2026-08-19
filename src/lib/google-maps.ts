@@ -56,6 +56,20 @@ const countryAliases: Record<string, string[]> = {
   "united kingdom": ["united kingdom", "uk", "england", "scotland", "wales", "northern ireland"],
 };
 
+const usRegions: Record<string, string> = {
+  oregon: "OR", washington: "WA", california: "CA", texas: "TX", illinois: "IL",
+  "new york": "NY", florida: "FL", massachusetts: "MA", maine: "ME", colorado: "CO",
+  arizona: "AZ", nevada: "NV", georgia: "GA", tennessee: "TN", pennsylvania: "PA",
+};
+
+function regionMatchesPlan(planLocation: string, address: string) {
+  const normalizedPlan = planLocation.toLowerCase();
+  const expected = Object.entries(usRegions).find(([name, abbreviation]) => normalizedPlan.includes(name) || new RegExp(`\\b${abbreviation.toLowerCase()}\\b`).test(normalizedPlan));
+  if (!expected) return true;
+  const normalizedAddress = address.toLowerCase();
+  return normalizedAddress.includes(expected[0]) || new RegExp(`\\b${expected[1].toLowerCase()}\\b`).test(normalizedAddress);
+}
+
 function countryMatchesPlan(planLocation: string, address: string) {
   const expected = Object.entries(countryAliases).find(([country]) => planLocation.toLowerCase().includes(country));
   if (!expected) return true;
@@ -67,6 +81,7 @@ export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) 
   if (!place.id || !place.displayName?.text || !place.formattedAddress) return 0;
   if (place.businessStatus === "CLOSED_PERMANENTLY") return 0;
   if (!countryMatchesPlan(plan.location, place.formattedAddress)) return 0;
+  if (!regionMatchesPlan(plan.location, place.formattedAddress)) return 0;
   const titleScore = overlap(tokens(`${item.title} ${item.description}`), tokens(place.displayName.text));
   const geographyScore = overlap(tokens(`${item.location} ${plan.location}`), tokens(place.formattedAddress));
   const actualTypes = new Set([place.primaryType, ...(place.types ?? [])].filter(Boolean) as string[]);
@@ -93,6 +108,7 @@ export function selectStrongPlace(places: GooglePlace[], item: PlanItem, plan: P
 }
 
 function contextualQuery(item: PlanItem, plan: Plan, adjacent?: { previous?: PlanItem; next?: PlanItem }) {
+  if (/book(?:shop|store)|books/i.test(`${item.title} ${item.description}`)) return `${item.title}, ${item.location}, ${plan.location}`.slice(0, 300);
   const context = [
     item.title, item.type, item.description, item.location, plan.location, plan.budgetLabel,
     `${plan.partySize} people`, plan.considerations.join(" "),
@@ -227,14 +243,15 @@ export async function enrichPlanWithGoogle(plan: Plan) {
   for (const day of enriched.days) for (const item of day.items) normalizeSuggestedItem(item);
   if (placesKey) {
     const candidates = enriched.days.flatMap((day) => day.items.map((item, index) => ({ item, previous: day.items[index - 1], next: day.items[index + 1] }))).filter(({ item }) => placeTypes.has(item.type) && !["google-verified", "live-availability", "verified"].includes(item.verification)).slice(0, 10);
-    await Promise.all(candidates.map(async ({ item, previous, next }) => {
+    const usedPlaceIds = new Set<string>();
+    for (const { item, previous, next } of candidates) {
       try {
         const places = await searchPlaces(contextualQuery(item, enriched, { previous, next }), placesKey);
-        const match = selectStrongPlace(places, item, enriched);
-        if (!match) return;
-        applyVerifiedPlace(item, match.place, match.score); placesVerified += 1;
+        const match = selectStrongPlace(places.filter((place) => !place.id || !usedPlaceIds.has(place.id)), item, enriched);
+        if (!match) continue;
+        applyVerifiedPlace(item, match.place, match.score); if (match.place.id) usedPlaceIds.add(match.place.id); placesVerified += 1;
       } catch (error) { console.warn("Places enrichment unavailable", error instanceof Error ? error.message : "unknown error"); }
-    }));
+    }
     keepSingleAccommodationBase(enriched);
   }
   if (routesKey) for (const day of enriched.days) for (let index = 1; index < day.items.length; index += 1) {

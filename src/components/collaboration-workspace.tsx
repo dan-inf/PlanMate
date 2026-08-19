@@ -89,6 +89,7 @@ export function CollaborationWorkspace() {
   const [latestEditId, setLatestEditId] = useState<string | null>(null);
   const [planRoles, setPlanRoles] = useState<Record<string, Member["role"]>>({});
   const [creationBalance, setCreationBalance] = useState<number | null>(null);
+  const [showJoinGrowth, setShowJoinGrowth] = useState(false);
   const handledEntryAction = useRef(false);
 
   const loadPlan = useCallback(async (planId: string) => {
@@ -169,8 +170,10 @@ export function CollaborationWorkspace() {
         setBusy(false);
         if (inviteError) setError(inviteError.message);
         else if (data) {
+          void supabase.rpc("track_product_event", { event_name: "invitation_accepted", plan_id: data as string, properties: {} });
           window.history.replaceState({}, "", "/collaborate");
           setNotice("Invitation accepted. Welcome to the plan.");
+          setShowJoinGrowth(window.localStorage.getItem("planmate.join-growth-dismissed") !== "1");
           loadPlans().then(() => loadPlan(data as string));
         }
       });
@@ -471,6 +474,7 @@ export function CollaborationWorkspace() {
         </aside>
 
         <section className="min-w-0 p-5 sm:p-8 lg:p-10 xl:p-12">
+          {showJoinGrowth ? <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-[#194d3a]/10 bg-[#fffdf8] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-[#245f43]">You’re in.</p><p className="mt-1 text-sm text-[#69766e]">Planning something of your own? Create your first Plan free.</p></div><div className="flex items-center gap-3"><Link href="/" onClick={() => void supabase.rpc("track_product_event", { event_name: "collaborator_create_cta_clicked", plan_id: plan?.id ?? null, properties: {} })} className="rounded-full bg-[#194d3a] px-4 py-2 text-xs font-bold text-white">Create a free Plan</Link><button onClick={() => { window.localStorage.setItem("planmate.join-growth-dismissed", "1"); setShowJoinGrowth(false); }} className="text-xs font-semibold text-[#657168]">Dismiss</button></div></div> : null}
           {notice ? <div className="mb-6 flex items-center justify-between rounded-2xl bg-[#e4efe7] px-4 py-3 text-sm font-semibold text-[#245f43]"><span className="flex items-center gap-2"><CheckCircle2 className="size-4" />{notice}</span><button onClick={() => setNotice(null)}>×</button></div> : null}
           {error ? <div role="alert" className="mb-6 rounded-2xl bg-[#fff0eb] px-4 py-3 text-sm text-[#a4452f]">{error}</div> : null}
           {!plan ? <PlanDashboard plans={plans} user={user} roles={planRoles} creationBalance={creationBalance} onOpen={loadPlan} /> : <>
@@ -495,6 +499,11 @@ export function CollaborationWorkspace() {
 }
 
 function AuthScreen({ supabase }: { supabase: ReturnType<typeof createClient> }) {
+  const token = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invite") : null;
+  return token ? <InvitationAuthScreen supabase={supabase} token={token} /> : <BaseAuthScreen supabase={supabase} />;
+}
+
+function BaseAuthScreen({ supabase }: { supabase: ReturnType<typeof createClient> }) {
   const [savingPlan] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("save") === "generated");
   const [invitationToken] = useState(() => typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invite") : null);
   const [mode, setMode] = useState<"signin" | "signup">(() => savingPlan ? "signup" : "signin");
@@ -521,6 +530,33 @@ function AuthScreen({ supabase }: { supabase: ReturnType<typeof createClient> })
   }
   if (savingPlan) return <main className="grid min-h-screen place-items-center bg-[#f4f1ea] p-5"><div className="w-full max-w-md rounded-[30px] border border-[#1e2822]/10 bg-[#fffdf8] p-7 shadow-[0_30px_80px_rgba(35,48,40,.12)] sm:p-9"><Link href="/plan/draft" className="inline-flex items-center gap-2 text-sm font-semibold text-[#657168]"><ArrowLeft className="size-4" />Back to your draft</Link><Link href="/" className="mt-6 flex items-center gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-[#194d3a] text-white"><Sparkles className="size-5" /></span><span className="text-xl font-bold">PlanMate</span></Link><div className="mt-8 flex items-center gap-2 rounded-2xl bg-[#e7eee8] px-4 py-3 text-sm font-semibold text-[#315c44]"><CheckCircle2 className="size-4" />Your plan is ready to save</div><h1 className="mt-8 font-serif text-4xl tracking-[-0.04em]">{mode === "signup" ? "Create an account to save this plan" : "Sign in to save your plan"}</h1><p className="mt-3 text-sm leading-6 text-[#69766e]">{mode === "signup" ? "Create your free account and we’ll save the exact plan you just generated." : "Welcome back. Sign in and we’ll save your plan to your workspace."}</p><form onSubmit={submit} className="mt-7 space-y-4">{mode === "signup" ? <label className="block text-sm font-semibold">Your name<input value={name} onChange={(event) => setName(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label> : null}<label className="block text-sm font-semibold">Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label><label className="block text-sm font-semibold">Password<input type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label>{message ? <p className="rounded-xl bg-[#fff0e7] p-3 text-sm text-[#985039]">{message}</p> : null}<button disabled={busy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#d96545] font-bold text-white">{busy ? <LoaderCircle className="size-4 animate-spin" /> : mode === "signup" ? "Create account & save plan" : "Sign in & save plan"}<ChevronRight className="size-4" /></button></form><button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setMessage(null); }} className="mt-5 w-full text-sm font-semibold text-[#526159]">{mode === "signup" ? "Already have an account? Sign in" : "New to PlanMate? Create an account"}</button></div></main>;
   return <main className="grid min-h-screen place-items-center bg-[#f4f1ea] p-5"><div className="w-full max-w-md rounded-[30px] border border-[#1e2822]/10 bg-[#fffdf8] p-7 shadow-[0_30px_80px_rgba(35,48,40,.12)] sm:p-9"><Link href="/" className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-[#194d3a] text-white"><Sparkles className="size-5" /></span><span className="text-xl font-bold">PlanMate</span></Link>{savingPlan ? <div className="mt-8 flex items-center gap-2 rounded-2xl bg-[#e7eee8] px-4 py-3 text-sm font-semibold text-[#315c44]"><CheckCircle2 className="size-4" />Your plan is ready to save</div> : null}<h1 className="mt-8 font-serif text-4xl tracking-[-0.04em]">{mode === "signin" ? (savingPlan ? "Sign in to save your plan" : "Welcome back") : savingPlan ? "Create an account to save this plan" : "Create your account"}</h1><p className="mt-3 text-sm leading-6 text-[#69766e]">{savingPlan ? (mode === "signup" ? "Create your free account and we’ll save the exact plan you just generated." : "Welcome back. Sign in and we’ll save your plan to your workspace.") : "Sign in to create plans, invite collaborators, vote, comment, and agree on the final version."}</p><form onSubmit={submit} className="mt-7 space-y-4">{mode === "signup" ? <label className="block text-sm font-semibold">Your name<input value={name} onChange={(event) => setName(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label> : null}<label className="block text-sm font-semibold">Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label><label className="block text-sm font-semibold">Password<input type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label>{message ? <p className="rounded-xl bg-[#fff0e7] p-3 text-sm text-[#985039]">{message}</p> : null}<button disabled={busy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#d96545] font-bold text-white">{busy ? <LoaderCircle className="size-4 animate-spin" /> : mode === "signin" ? (savingPlan ? "Sign in & save plan" : "Sign in") : savingPlan ? "Create account & save plan" : "Create account"}<ChevronRight className="size-4" /></button></form><button onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setMessage(null); }} className="mt-5 w-full text-sm font-semibold text-[#526159]">{mode === "signin" ? "New to PlanMate? Create an account" : "Already have an account? Sign in"}</button></div></main>;
+}
+
+function InvitationAuthScreen({ supabase, token }: { supabase: ReturnType<typeof createClient>; token: string }) {
+  const [preview, setPreview] = useState<{ planTitle?: string; location?: string; inviterName?: string; available?: boolean } | null>(null);
+  const [mode, setMode] = useState<"signin" | "signup">("signup");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.rpc("get_invitation_preview", { invitation_token: token }).then(({ data, error }) => {
+      if (error || !data) setPreview({ available: false });
+      else { setPreview(data as typeof preview); void supabase.rpc("track_product_event", { event_name: "invitation_opened", properties: {} }); }
+    });
+  }, [supabase, token]);
+  async function join(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setMessage(null);
+    void supabase.rpc("track_product_event", { event_name: "invitation_auth_started", properties: { mode } });
+    const result = mode === "signin" ? await supabase.auth.signInWithPassword({ email, password }) : await supabase.auth.signUp({ email, password, options: { data: { display_name: name }, emailRedirectTo: `${window.location.origin}/collaborate?invite=${token}` } });
+    if (result.error) setMessage(result.error.message);
+    else if (mode === "signup" && !result.data.session) { void supabase.rpc("track_product_event", { event_name: "invitation_account_created", properties: {} }); setMessage("Check your email to confirm your account. The confirmation link will bring you back to this Plan."); }
+    setBusy(false);
+  }
+  if (!preview) return <FullPageLoader />;
+  if (!preview.available) return <main className="grid min-h-screen place-items-center bg-[#f4f1ea] p-5"><div className="w-full max-w-lg rounded-[30px] bg-[#fffdf8] p-8 text-center shadow-xl"><Sparkles className="mx-auto size-8 text-[#194d3a]" /><h1 className="mt-5 font-serif text-4xl">This invitation is no longer available</h1><p className="mt-3 leading-7 text-[#69766e]">It may have expired, been canceled, or already been accepted. Ask the organizer for a fresh invitation.</p><Link href="/" className="mt-6 inline-flex rounded-full bg-[#194d3a] px-6 py-3 text-sm font-bold text-white">Go to PlanMate</Link></div></main>;
+  return <main className="grid min-h-screen place-items-center bg-[#f4f1ea] p-5"><div className="w-full max-w-lg rounded-[30px] border border-[#1e2822]/10 bg-[#fffdf8] p-7 shadow-[0_30px_80px_rgba(35,48,40,.12)] sm:p-9"><div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-[#194d3a] text-white"><Sparkles className="size-5" /></span><span className="text-xl font-bold">PlanMate</span></div><p className="mt-8 text-sm font-bold text-[#d15d3e]">{preview.inviterName} invited you</p><h1 className="mt-2 font-serif text-4xl tracking-[-.04em]">You’ve been invited to help plan</h1><div className="mt-5 rounded-2xl bg-[#e8eee9] p-4"><p className="font-bold">{preview.planTitle}</p>{preview.location ? <p className="mt-1 text-sm text-[#647169]">{preview.location}</p> : null}</div><p className="mt-5 text-sm leading-6 text-[#69766e]">Join to view the itinerary, give input, comment, and agree. A free account protects the group’s Plan and remembers your input.</p><form onSubmit={join} className="mt-6 space-y-4">{mode === "signup" ? <label className="block text-sm font-semibold">Your name<input value={name} onChange={(event) => setName(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label> : null}<label className="block text-sm font-semibold">Invited email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label><label className="block text-sm font-semibold">Password<input type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label>{message ? <p className="rounded-xl bg-[#fff0e7] p-3 text-sm text-[#985039]">{message}</p> : null}<button disabled={busy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#d96545] font-bold text-white">{busy ? <LoaderCircle className="size-4 animate-spin" /> : "Join this plan"}<ChevronRight className="size-4" /></button></form><button type="button" onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setMessage(null); }} className="mt-5 w-full text-sm font-semibold text-[#526159]">{mode === "signup" ? "Already have an account? Sign in" : "New to PlanMate? Create an account"}</button></div></main>;
 }
 
 function LegacyApprovalCard({ plan, owner, busy, collaborators, approvedIds, currentUserApproved, onRequest, onAgree }: { plan: PlanRow; owner: boolean; busy: boolean; collaborators: Member[]; approvedIds: Set<string>; currentUserApproved: boolean; onRequest: () => void; onAgree: () => void }) {

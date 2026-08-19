@@ -85,6 +85,13 @@ test("an international plan rejects a same-name place in the wrong country", () 
   assert.equal(selectStrongPlace([wrongCountry], activity, source), null);
 });
 
+test("a same-name US city in the wrong state is rejected", () => {
+  const coffee = item({ title: "Independent coffee", description: "Coffee in downtown Portland", location: "Portland, Oregon" });
+  const source = { ...plan(coffee), location: "Portland, Oregon" };
+  const wrongState = { id: "maine", displayName: { text: "Tandem Coffee" }, formattedAddress: "742 Congress St, Portland, ME 04102, USA", primaryType: "cafe", types: ["cafe"] };
+  assert.equal(selectStrongPlace([wrongState], coffee, source), null);
+});
+
 test("verified provider fields map without claiming availability", () => {
   const target = item();
   applyVerifiedPlace(target, { id: "place-1", displayName: { text: "Test Trattoria" }, formattedAddress: "1 Spring St, New York, NY", googleMapsUri: "https://maps.google.com/test", websiteUri: "https://example.com", location: { latitude: 40.72, longitude: -74 }, businessStatus: "OPERATIONAL", rating: 4.6, userRatingCount: 321, priceLevel: "PRICE_LEVEL_MODERATE", regularOpeningHours: { weekdayDescriptions: ["Friday: 5–11 PM"] } }, 0.8);
