@@ -24,3 +24,15 @@ Regular opening hours describe the normal schedule; they do not prove that a pla
 ## Routes
 
 Consecutive items with coordinates receive a route request using only duration and distance. Stops within roughly 2.2 km use walking; longer legs use traffic-aware driving. The UI shows the returned duration and mode. It never displays an invented travel time.
+
+## Recommendation-quality release check
+
+A verified place is not automatically a good recommendation. Before a planning release, manually score the Seattle date, Spain personal trip, Spain family trips (ages 3/6 and 14/16), Austin group celebration, team offsite, budget local day, and mobility/dietary-constrained cases.
+
+For each case record concrete named recommendations, intentional flexible blocks, weak or mismatched recommendations, redundancy, route/backtracking concerns, budget or family/constraint conflicts, unsupported factual claims, a 1–5 usefulness score, and whether a human planner would plausibly keep the first draft.
+
+The release threshold is zero clearly mismatched or unsafe recommendations, zero unsupported availability or safety claims, no landmark substitution for generic activities, at least 80% concrete and plausibly useful recommendation-bearing items, and usefulness of 4/5 or better.
+
+## Tracked cost optimization
+
+Before broader traffic, instrument Places request volume and SKU exposure, then evaluate a two-step strategy: lean Text Search fields for candidate discovery followed by Place Details only for selected candidates. Until then, keep enrichment and candidate caps conservative and retain Enterprise fields only while they materially support ranking or visible place details.

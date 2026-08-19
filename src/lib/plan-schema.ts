@@ -68,6 +68,7 @@ export const planSchema = z.object({
   days: z.array(planDaySchema),
   budget: z.array(budgetLineSchema),
   considerations: z.array(z.string()),
+  planningAssumptions: z.array(z.object({ label: z.string(), value: z.string(), assumed: z.boolean() })).optional(),
 });
 
 export type PlanCategory = z.infer<typeof planCategorySchema>;

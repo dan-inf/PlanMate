@@ -25,11 +25,12 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import type { Plan, PlanCategory, PlanItem } from "@/lib/plan-schema";
+import { assumptionsForSkip, clarificationQuestions, extractPlanningIntent, helperCopy, type ClarificationQuestion, type PlanningAssumption } from "@/lib/planning-intake";
 import { samplePlan } from "@/lib/sample-plan";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -122,6 +123,8 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [undoPlan, setUndoPlan] = useState<Plan | null>(null);
+  const [clarification, setClarification] = useState<ClarificationQuestion[] | null>(null);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!draftMode) return;
@@ -143,19 +146,26 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     }
   }, [draftMode, router]);
 
-  const activeCategory = useMemo(
-    () => categories.find((item) => item.id === category) ?? categories[2],
-    [category],
-  );
-
   function chooseCategory(nextCategory: (typeof categories)[number]) {
     setCategory(nextCategory.id);
     setPrompt("");
     setError(null);
+    setClarification(null);
+    setClarificationAnswers({});
   }
 
   async function generatePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const questions = clarificationQuestions(category, prompt);
+    if (questions.length) {
+      setClarification(questions);
+      setClarificationAnswers({});
+      return;
+    }
+    await buildPlan(prompt, []);
+  }
+
+  async function buildPlan(finalPrompt: string, assumptions: PlanningAssumption[]) {
     setLoading(true);
     setError(null);
 
@@ -163,7 +173,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       const response = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category, prompt }),
+        body: JSON.stringify({ category, prompt: finalPrompt }),
       });
       const data = (await response.json()) as { plan?: Plan; error?: string };
 
@@ -171,8 +181,10 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
         throw new Error(data.error ?? "PlanMate could not build that plan.");
       }
 
-      const pending: PendingGeneratedPlan = { plan: data.plan, category, prompt };
+      data.plan.planningAssumptions = assumptions;
+      const pending: PendingGeneratedPlan = { plan: data.plan, category, prompt: finalPrompt, intent: extractPlanningIntent(finalPrompt), assumptions };
       window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify(pending));
+      setPrompt(finalPrompt);
       setPlan(data.plan);
       router.push("/plan/draft");
     } catch (caughtError) {
@@ -186,11 +198,49 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     }
   }
 
+  async function submitClarification(skip = false) {
+    if (!clarification) return;
+    if (!skip && /family|children|kids/i.test(clarificationAnswers.travelers ?? "") && !clarification.some((question) => question.id === "childrenAges")) {
+      const ageQuestion = clarificationQuestions(category, `${prompt} family with children`).find((question) => question.id === "childrenAges");
+      if (ageQuestion) {
+        setClarification((current) => current ? [...current.filter((question) => question.id !== "priorities").slice(0, 4), ageQuestion] : current);
+        return;
+      }
+    }
+    const assumptions = skip ? assumptionsForSkip(clarification) : clarification.map((question) => ({ label: question.label.replace(/\?$/, ""), value: clarificationAnswers[question.id] || "Not specified", assumed: false }));
+    const details = skip ? assumptions.map((item) => `${item.label}: ${item.value}`).join("; ") : clarification.map((question) => `${question.label} ${clarificationAnswers[question.id]}`).join("; ");
+    setClarification(null);
+    if (plan && !skip) {
+      setLoading(true); setError(null);
+      try {
+        const response = await fetch("/api/plan/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "context", plan, instruction: details }) });
+        const data = (await response.json()) as { plan?: Plan; error?: string };
+        if (!response.ok || !data.plan) throw new Error(data.error ?? "PlanMate could not apply those details.");
+        data.plan.planningAssumptions = assumptions;
+        setUndoPlan(plan); setPlan(data.plan);
+        const updatedPrompt = `${prompt}\n\nAdditional planning context: ${details}`;
+        setPrompt(updatedPrompt);
+        window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify({ plan: data.plan, category, prompt: updatedPrompt, intent: extractPlanningIntent(updatedPrompt), assumptions } satisfies PendingGeneratedPlan));
+      } catch (caughtError) { setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not apply those details."); }
+      finally { setLoading(false); }
+      return;
+    }
+    await buildPlan(`${prompt}\n\nAdditional planning context: ${details}. ${skip ? "This is provisional. Avoid age-restricted or high-risk recommendations when ages or suitability are unknown." : ""}`, assumptions);
+  }
+
   async function savePlan() {
     if (!plan) return;
     setSaving(true);
     setError(null);
-    const pending: PendingGeneratedPlan = { plan, category, prompt };
+    const storedPending = window.sessionStorage.getItem(pendingPlanStorageKey);
+    const parsedPending = storedPending ? JSON.parse(storedPending) as PendingGeneratedPlan : null;
+    const pending: PendingGeneratedPlan = {
+      plan,
+      category,
+      prompt,
+      intent: parsedPending?.intent ?? extractPlanningIntent(prompt),
+      assumptions: plan.planningAssumptions ?? parsedPending?.assumptions ?? [],
+    };
     window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify(pending));
 
     try {
@@ -214,7 +264,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     setPlan(nextPlan);
     window.sessionStorage.setItem(
       pendingPlanStorageKey,
-      JSON.stringify({ plan: nextPlan, category, prompt } satisfies PendingGeneratedPlan),
+      JSON.stringify({ plan: nextPlan, category, prompt, intent: extractPlanningIntent(prompt), assumptions: nextPlan.planningAssumptions ?? [] } satisfies PendingGeneratedPlan),
     );
   }
 
@@ -392,9 +442,10 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
                 onChange={(event) => setPrompt(event.target.value)}
                 rows={5}
                 maxLength={4000}
-                placeholder={`${activeCategory.prompt} Include dates, budget, people, and the vibe you want.`}
+                placeholder="Describe what you want to plan in your own words…"
                 className="mt-3 w-full resize-none border-0 bg-transparent text-base leading-7 text-[#25352c] outline-none placeholder:text-[#9aa39e] sm:text-[17px]"
               />
+              <p className="mb-3 text-xs leading-5 text-[#859087]">{helperCopy(category)}</p>
               {error ? (
                 <p className="mb-3 rounded-xl bg-[#fff0eb] px-3 py-2 text-sm text-[#a4452f]" role="alert">
                   {error}
@@ -423,6 +474,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
                 </button>
               </div>
             </form>
+            {clarification ? <div className="fixed inset-0 z-50 grid place-items-end bg-[#17251e]/45 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Plan clarification"><div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-[#fffdf8] p-5 shadow-2xl sm:rounded-[28px] sm:p-7"><p className="text-xs font-bold uppercase tracking-[.14em] text-[#d15d3e]">A better first draft</p><h2 className="mt-2 font-serif text-3xl tracking-[-.04em]">Let’s make this useful.</h2><p className="mt-2 text-sm leading-6 text-[#6c7971]">A few details will change the plan.</p><div className="mt-6 space-y-5">{clarification.map((question) => <fieldset key={question.id}><legend className="text-sm font-bold text-[#33423a]">{question.label}</legend><div className="mt-2 flex flex-wrap gap-2">{question.options.map((option) => <button key={option} type="button" onClick={() => { setClarificationAnswers((current) => ({ ...current, [question.id]: option })); if (question.id === "travelers" && /family|children/i.test(option) && !clarification.some((candidate) => candidate.id === "childrenAges")) { const ageQuestion = clarificationQuestions(category, `${prompt} family with children`).find((candidate) => candidate.id === "childrenAges"); if (ageQuestion) setClarification((current) => current ? [...current.filter((candidate) => candidate.id !== "priorities").slice(0, 4), ageQuestion] : current); } }} className={`rounded-full border px-3 py-2 text-xs font-semibold ${clarificationAnswers[question.id] === option ? "border-[#194d3a] bg-[#194d3a] text-white" : "border-[#1e2822]/12 bg-white text-[#526159]"}`}>{option}</button>)}</div><input value={clarificationAnswers[question.id] ?? ""} onChange={(event) => setClarificationAnswers((current) => ({ ...current, [question.id]: event.target.value }))} placeholder={question.placeholder} className="mt-2 w-full rounded-xl border border-[#1e2822]/10 bg-white px-3 py-2.5 text-sm outline-none" /></fieldset>)}</div><button type="button" disabled={loading || clarification.some((question) => !clarificationAnswers[question.id]?.trim())} onClick={() => void submitClarification(false)} className="mt-7 flex min-h-12 w-full items-center justify-center rounded-full bg-[#d96545] px-5 text-sm font-bold text-white disabled:opacity-50">Build my plan</button><button type="button" disabled={loading} onClick={() => void submitClarification(true)} className="mt-3 w-full py-2 text-sm font-semibold text-[#657168]">Skip — make reasonable assumptions</button></div></div> : null}
           </div>
         </div>
       </section>
@@ -472,6 +524,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
                   <p className="flex items-center gap-2.5"><Users className="size-4 text-[#d15d3e]" />{displayedPlan.partySize} people</p>
                 </div>
               </div>
+              {displayedPlan.planningAssumptions?.length ? <div className="mt-6 border-t border-[#1e2822]/10 pt-6"><p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#8a958e]">Planning assumptions</p><div className="mt-3 space-y-2">{displayedPlan.planningAssumptions.map((assumption) => <p key={assumption.label} className="text-xs leading-5 text-[#657168]"><span className="font-bold text-[#33423a]">{assumption.label}:</span> {assumption.value}</p>)}</div>{plan && displayedPlan.planningAssumptions.some((assumption) => assumption.assumed) ? <button type="button" onClick={() => { const questions = clarificationQuestions(category, prompt); if (questions.length) { setClarification(questions); setClarificationAnswers({}); } }} className="mt-3 text-xs font-bold text-[#c3573b]">Add or correct details</button> : null}</div> : null}
             </aside>
 
             <div className="min-w-0 p-5 sm:p-8 lg:p-9">

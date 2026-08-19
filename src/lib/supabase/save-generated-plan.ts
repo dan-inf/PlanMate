@@ -1,6 +1,7 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import type { Plan, PlanCategory } from "@/lib/plan-schema";
+import type { PlanningAssumption, PlanningIntent } from "@/lib/planning-intake";
 
 export const pendingPlanStorageKey = "planmate.pending-generated-plan";
 
@@ -8,6 +9,8 @@ export type PendingGeneratedPlan = {
   plan: Plan;
   category: PlanCategory;
   prompt: string;
+  intent?: PlanningIntent;
+  assumptions?: PlanningAssumption[];
 };
 
 function parseTime(value: string) {
@@ -22,7 +25,7 @@ export async function persistGeneratedPlan(
   pending: PendingGeneratedPlan,
 ) {
   const { plan, category, prompt } = pending;
-  const sourceSnapshot = JSON.stringify({ version: 1, prompt, category, generatedPlan: plan });
+  const sourceSnapshot = JSON.stringify({ version: 2, prompt, category, intent: pending.intent, assumptions: pending.assumptions, generatedPlan: plan });
   const { data: createdPlan, error: planError } = await supabase
     .from("plans")
     .insert({

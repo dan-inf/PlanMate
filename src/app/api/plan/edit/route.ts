@@ -32,15 +32,22 @@ const editRequestSchema = z.discriminatedUnion("operation", [
     insertAfterIndex: z.number().int().min(-1).optional(),
     instruction: z.string().trim().min(3).max(500).optional(),
   }),
+  z.object({
+    operation: z.literal("context"),
+    plan: planSchema,
+    instruction: z.string().trim().min(3).max(2000),
+  }),
 ]);
+const editedPlanSchema = planSchema.omit({ planningAssumptions: true });
 
 export async function POST(request: Request) {
   try {
     const body = editRequestSchema.parse(await request.json());
-    const day = body.plan.days[body.dayIndex];
-    if (!day) return NextResponse.json({ error: "That day is no longer available." }, { status: 400 });
+    const day = "dayIndex" in body ? body.plan.days[body.dayIndex] : null;
+    if ("dayIndex" in body && !day) return NextResponse.json({ error: "That day is no longer available." }, { status: 400 });
 
     if (body.operation === "alternatives") {
+      if (!day) return NextResponse.json({ error: "That day is no longer available." }, { status: 400 });
       const item = day.items.find((candidate) => candidate.id === body.itemId);
       if (!item) return NextResponse.json({ error: "That plan item is no longer available." }, { status: 400 });
       const alternatives = await findAlternativePlaces(body.plan, item, body.instruction);
@@ -58,7 +65,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Plan editing is not configured yet." }, { status: 503 });
     }
 
-    const operation = body.operation === "remove"
+    const operation = body.operation === "context" ? `Apply this corrected planning context: ${body.instruction}. Update only affected timings, pacing, suitability, costs, and recommendations; preserve unrelated selections and every stable id.` : body.operation === "remove"
       ? `Remove only the item with id ${body.itemId}. Do not remove anything else.`
       : `Insert one new step after item index ${body.insertAfterIndex ?? -1} on day index ${body.dayIndex}. The user wants: ${body.instruction}.`;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -66,7 +73,7 @@ export async function POST(request: Request) {
       model: process.env.OPENAI_MODEL ?? "gpt-5.6-luna",
       store: false,
       reasoning: { effort: "low" },
-      text: { format: zodTextFormat(planSchema, "planmate_edited_plan"), verbosity: "low" },
+      text: { format: zodTextFormat(editedPlanSchema, "planmate_edited_plan"), verbosity: "low" },
       input: [
         {
           role: "system",
@@ -80,6 +87,9 @@ Rules:
 - Do not invent live venue names, addresses, prices, availability, ratings, booking URLs, or travel times.
 - New place-based items should describe the desired venue type and area, use suggested, and leave provider data empty. Google may verify a strong match after this step.
 - Keep accommodation separate from activities on multi-day plans.
+- Apply family composition across pacing, meal timing, transport buffers, lodging area, backups, and activity intensity. Never claim child safety or eligibility without verified provider information.
+- Every changed recommendation must be concrete and explain its fit. Preserve intentional rest/free-time blocks as generic rather than attempting to turn them into arbitrary venues.
+- Avoid redundant experiences, geographic backtracking, weak filler, and unsupported claims about opening, accessibility, suitability, safety, availability, or budget fit.
 - Use 0 for unknown travel time or cost.`,
         },
         {
@@ -99,7 +109,10 @@ Rules:
     if (!response.output_parsed) {
       return NextResponse.json({ error: "PlanMate could not apply that change." }, { status: 422 });
     }
-    const enriched = await enrichPlanWithGoogle(response.output_parsed);
+    const enriched = await enrichPlanWithGoogle({
+      ...response.output_parsed,
+      planningAssumptions: body.plan.planningAssumptions,
+    });
     return NextResponse.json({ plan: enriched.plan });
   } catch (error) {
     if (error instanceof z.ZodError) {
