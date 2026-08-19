@@ -38,20 +38,39 @@ function overlap(left: Set<string>, right: Set<string>) {
   return matches / Math.min(left.size, right.size);
 }
 
-function expectedGoogleTypes(type: PlanItem["type"]) {
-  if (type === "meal") return new Set(["restaurant", "cafe", "bakery", "meal_takeaway"]);
-  if (type === "nightlife") return new Set(["bar", "night_club", "wine_bar"]);
-  if (type === "accommodation") return new Set(["hotel", "lodging", "resort_hotel", "hostel"]);
+function expectedGoogleTypes(item: PlanItem) {
+  if (item.type === "meal") return new Set(["restaurant", "cafe", "bakery", "meal_takeaway"]);
+  if (item.type === "nightlife") return new Set(["bar", "night_club", "wine_bar", "live_music_venue"]);
+  if (item.type === "accommodation") return new Set(["hotel", "lodging", "resort_hotel", "hostel"]);
+  const context = `${item.title} ${item.description}`.toLowerCase();
+  if (/book(?:shop|store)|books/.test(context)) return new Set(["book_store"]);
+  if (/coffee|cafe|bakery/.test(context)) return new Set(["cafe", "coffee_shop", "bakery"]);
+  if (/market/.test(context)) return new Set(["market", "farmers_market"]);
   return new Set(["tourist_attraction", "museum", "park", "art_gallery", "performing_arts_theater", "amusement_center"]);
+}
+
+const countryAliases: Record<string, string[]> = {
+  spain: ["spain", "españa"], france: ["france"], italy: ["italy", "italia"], portugal: ["portugal"],
+  germany: ["germany", "deutschland"], greece: ["greece"], ireland: ["ireland"], japan: ["japan"],
+  canada: ["canada"], mexico: ["mexico", "méxico"], australia: ["australia"],
+  "united kingdom": ["united kingdom", "uk", "england", "scotland", "wales", "northern ireland"],
+};
+
+function countryMatchesPlan(planLocation: string, address: string) {
+  const expected = Object.entries(countryAliases).find(([country]) => planLocation.toLowerCase().includes(country));
+  if (!expected) return true;
+  const normalizedAddress = address.toLowerCase();
+  return expected[1].some((alias) => normalizedAddress.includes(alias));
 }
 
 export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) {
   if (!place.id || !place.displayName?.text || !place.formattedAddress) return 0;
   if (place.businessStatus === "CLOSED_PERMANENTLY") return 0;
+  if (!countryMatchesPlan(plan.location, place.formattedAddress)) return 0;
   const titleScore = overlap(tokens(`${item.title} ${item.description}`), tokens(place.displayName.text));
   const geographyScore = overlap(tokens(`${item.location} ${plan.location}`), tokens(place.formattedAddress));
   const actualTypes = new Set([place.primaryType, ...(place.types ?? [])].filter(Boolean) as string[]);
-  const typeScore = [...expectedGoogleTypes(item.type)].some((type) => actualTypes.has(type)) ? 1 : 0;
+  const typeScore = [...expectedGoogleTypes(item)].some((type) => actualTypes.has(type)) ? 1 : 0;
   const ratingConfidence = place.rating && place.userRatingCount
     ? Math.min(1, Math.max(0, (place.rating - 3.5) / 1.2)) * Math.min(1, Math.log10(place.userRatingCount + 1) / 3)
     : 0;
@@ -62,7 +81,7 @@ export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) 
   if (item.type === "meal" && /\b(dinner|supper|evening meal)\b/i.test(`${item.title} ${item.description}`) && place.primaryType && !/restaurant/.test(place.primaryType)) return Math.min(score, 0.35);
   // A generic walk, neighborhood exploration, or flexible activity is not a venue.
   // Require some name/context agreement before attaching a specific Google place.
-  if (item.type === "activity" && titleScore < 0.2) return Math.min(score, 0.35);
+  if (item.type === "activity" && titleScore < 0.2 && /\b(explor|stroll|walk|free time|downtime|flexible|neighborhood)\b/i.test(`${item.title} ${item.description}`)) return Math.min(score, 0.35);
   return score;
 }
 

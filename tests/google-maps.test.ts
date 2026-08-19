@@ -69,6 +69,22 @@ test("generic neighborhood activity does not become an arbitrary landmark", () =
   assert.equal(selectStrongPlace([landmark], activity, source), null);
 });
 
+test("a specific bookstore request can match by provider type", () => {
+  const bookstore = item({ type: "activity", title: "Browse an independent bookstore", description: "Spend an hour browsing books", location: "Capitol Hill, Seattle" });
+  const source = { ...plan(bookstore), location: "Seattle, Washington" };
+  const place = { id: "books", displayName: { text: "Elliott Bay Book Company" }, formattedAddress: "Seattle, WA, USA", primaryType: "book_store", types: ["book_store", "store"] };
+
+  assert.ok(selectStrongPlace([place], bookstore, source));
+});
+
+test("an international plan rejects a same-name place in the wrong country", () => {
+  const activity = item({ type: "activity", title: "Explore Santa Cruz", description: "Walk Seville's Santa Cruz quarter", location: "Santa Cruz, Seville" });
+  const source = { ...plan(activity), location: "Madrid and Seville, Spain" };
+  const wrongCountry = { id: "california", displayName: { text: "Visit Santa Cruz County" }, formattedAddress: "705 Front St, Santa Cruz, CA 95060, USA", primaryType: "tourist_attraction" };
+
+  assert.equal(selectStrongPlace([wrongCountry], activity, source), null);
+});
+
 test("verified provider fields map without claiming availability", () => {
   const target = item();
   applyVerifiedPlace(target, { id: "place-1", displayName: { text: "Test Trattoria" }, formattedAddress: "1 Spring St, New York, NY", googleMapsUri: "https://maps.google.com/test", websiteUri: "https://example.com", location: { latitude: 40.72, longitude: -74 }, businessStatus: "OPERATIONAL", rating: 4.6, userRatingCount: 321, priceLevel: "PRICE_LEVEL_MODERATE", regularOpeningHours: { weekdayDescriptions: ["Friday: 5–11 PM"] } }, 0.8);
