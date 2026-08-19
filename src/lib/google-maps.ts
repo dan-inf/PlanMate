@@ -235,10 +235,52 @@ export function keepSingleAccommodationBase(plan: Plan) {
   return plan;
 }
 
+function semanticPlaceKey(item: PlanItem) {
+  return `${item.type}:${item.title.toLowerCase().replace(/\b(the|at|of|official|visitor|center|centre|restaurant|cafe)\b/g, "").replace(/[^a-z0-9]+/g, " ").trim()}`;
+}
+
+export function removeSemanticDuplicates(plan: Plan) {
+  const seen = new Set<string>();
+  for (const day of plan.days) {
+    day.items = day.items.filter((item) => {
+      if (!placeTypes.has(item.type) || item.type === "accommodation") return true;
+      const key = semanticPlaceKey(item);
+      if (!key.split(":")[1] || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  return plan;
+}
+
+export function applyConstraintConfirmations(plan: Plan) {
+  const context = `${plan.summary} ${plan.considerations.join(" ")}`;
+  const mobility = /wheelchair|mobility|stairs|step-free|accessible/i.test(context);
+  const dietary = /celiac|coeliac|gluten|allerg|dietary/i.test(context);
+  for (const item of plan.days.flatMap((day) => day.items)) {
+    if (mobility && ["activity", "meal", "accommodation"].includes(item.type) && item.verification === "google-verified") {
+      item.description += ` Accessibility needs confirmation${item.websiteUrl ? " on the official website" : " directly with the venue"}: verify step-free entrance, accessible restrooms, and whether the activity itself is suitable.`;
+      item.status = "idea";
+    }
+    if (dietary && item.type === "meal" && item.verification === "google-verified") {
+      item.description += ` Dietary suitability needs confirmation${item.websiteUrl ? " through the official menu or venue" : " directly with the venue"}: ask about a dedicated preparation area, cross-contamination controls, and allergen handling.`;
+      item.status = "idea";
+    }
+  }
+  if (mobility && !plan.considerations.some((value) => /Accessibility needs confirmation/i.test(value))) plan.considerations.push("Accessibility needs confirmation for each venue and activity; use the official link or call before relying on the stop.");
+  if (dietary && !plan.considerations.some((value) => /Dietary suitability needs confirmation/i.test(value))) plan.considerations.push("Dietary suitability needs confirmation; ask specifically about preparation areas, cross-contamination, and allergen handling.");
+  return plan;
+}
+
+export function routeIsPlausible(leg: RouteLeg) {
+  return leg.minutes <= 180 && leg.distanceMeters <= 300_000;
+}
+
 export async function enrichPlanWithGoogle(plan: Plan) {
   const placesKey = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
   const routesKey = process.env.GOOGLE_ROUTES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
   const enriched: Plan = structuredClone(plan);
+  const originalItems = new Map(plan.days.flatMap((day) => day.items).map((item) => [item.id, structuredClone(item)]));
   let placesVerified = 0; let routesCalculated = 0;
   for (const day of enriched.days) for (const item of day.items) normalizeSuggestedItem(item);
   if (placesKey) {
@@ -253,11 +295,14 @@ export async function enrichPlanWithGoogle(plan: Plan) {
       } catch (error) { console.warn("Places enrichment unavailable", error instanceof Error ? error.message : "unknown error"); }
     }
     keepSingleAccommodationBase(enriched);
+    removeSemanticDuplicates(enriched);
+    applyConstraintConfirmations(enriched);
   }
   if (routesKey) for (const day of enriched.days) for (let index = 1; index < day.items.length; index += 1) {
     const current = day.items[index];
     try {
       const leg = await routeLeg(day.items[index - 1], current, routesKey);
+      if (leg && !routeIsPlausible(leg)) { const original = originalItems.get(current.id); if (original) Object.assign(current, original); continue; }
       if (leg) { current.travelMinutes = leg.minutes; current.travelMode = leg.mode; current.routeDistanceMeters = leg.distanceMeters; routesCalculated += 1; }
     } catch (error) { console.warn("Route enrichment unavailable", error instanceof Error ? error.message : "unknown error"); }
   }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyVerifiedPlace, enrichPlanWithGoogle, keepSingleAccommodationBase, scorePlaceMatch, selectStrongPlace } from "../src/lib/google-maps.ts";
+import { applyConstraintConfirmations, applyVerifiedPlace, enrichPlanWithGoogle, keepSingleAccommodationBase, removeSemanticDuplicates, routeIsPlausible, scorePlaceMatch, selectStrongPlace } from "../src/lib/google-maps.ts";
 import type { Plan, PlanItem } from "../src/lib/plan-schema.ts";
 import { replacePlanItem } from "../src/lib/plan-edits.ts";
 
@@ -159,4 +159,27 @@ test("single-city plan does not switch hotels only for checkout", () => {
   assert.equal(checkout.placeId, "downtown");
   assert.equal(checkout.id, "hotel-2");
   assert.match(checkout.description, /checkout/i);
+});
+
+test("semantic duplicates are removed even with different provider records", () => {
+  const source = plan(item({ id: "first", type: "activity", title: "Royal Alcázar of Seville", placeId: "one" }));
+  source.days.push({ label: "Day 2", date: "", items: [item({ id: "second", type: "activity", title: "The Royal Alcázar of Seville Visitor Center", placeId: "two" })] });
+  removeSemanticDuplicates(source);
+  assert.equal(source.days.flatMap((day) => day.items).length, 1);
+});
+
+test("hard constraints remain explicitly unverified by generic place facts", () => {
+  const meal = item({ verification: "google-verified", websiteUrl: "https://restaurant.example", status: "selected" });
+  const source = plan(meal);
+  source.summary = "A date for someone with celiac disease and a wheelchair user";
+  applyConstraintConfirmations(source);
+  assert.match(meal.description, /Dietary suitability needs confirmation/);
+  assert.match(meal.description, /Accessibility needs confirmation/);
+  assert.match(meal.description, /cross-contamination/);
+  assert.equal(meal.status, "idea");
+});
+
+test("absurd local route legs are rejected", () => {
+  assert.equal(routeIsPlausible({ minutes: 2804, distanceMeters: 5_000_000, mode: "drive" }), false);
+  assert.equal(routeIsPlausible({ minutes: 24, distanceMeters: 12_000, mode: "drive" }), true);
 });
