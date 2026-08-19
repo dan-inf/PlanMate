@@ -10,7 +10,7 @@ export type PlanningIntent = {
 };
 
 const monthOrSeason = /\b(january|february|march|april|may|june|july|august|september|october|november|december|spring|summer|fall|autumn|winter|flexible dates?|this (?:friday|saturday|sunday|weekend)|\d{4}-\d{2}-\d{2}|\b\d{1,2}\/\d{1,2})\b/i;
-const durationPattern = /\b(?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*[- ]?\s*(?:day|days|night|nights|week|weeks)|\bweekend\b/i;
+const durationPattern = /\b(?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*[- ]?\s*(?:day|days|night|nights|week|weeks)|\bweekend\b|\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|through)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i;
 const travelerPattern = /\b(?:solo|couple|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:adult|adults|people|person|friends|travelers|guests|team members?)\b/i;
 const familyPattern = /\b(kids?|children|family|toddler|teenagers?|teens?)\b/i;
 const agesPattern = /\b(?:ages?|aged)\s*[:\-]?\s*\d{1,2}(?:\s*(?:,|and|&)\s*\d{1,2})*/i;
@@ -25,7 +25,7 @@ export function extractPlanningIntent(prompt: string): PlanningIntent {
   const budget = prompt.match(budgetPattern)?.[0];
   const location = prompt.match(locationPattern)?.[1]?.replace(/\s+(?:for|from|with|this|next|in)\b.*$/i, "").trim();
   const constraints = prompt.match(/\b(?:wheelchair|accessible|accessibility|gluten[- ]free|vegetarian|vegan|allerg(?:y|ies|ic)|mobility|car seat|stroller|nap|bedtime)\b/gi) ?? [];
-  const priorities = /\b(food|history|beach|nightlife|outdoors?|relax|museum|music|wine|hiking|strategy|team building)\b/i.exec(prompt)?.[0];
+  const priorities = /\b(food|dinner|restaurants?|coffee|books?|history|culture|beach|nightlife|outdoors?|relax(?:ed|ation)?|museums?|music|wine|hiking|strategy|team building|shopping|art|architecture)\b/i.exec(prompt)?.[0];
   const startingPoint = /\b(?:from|starting in|departing from)\s+([A-Z][A-Za-z.' -]{2,35})/.exec(prompt)?.[1];
   return { timing, location, duration, travelers, childrenAges, budget, priorities, startingPoint, constraints };
 }

@@ -26,6 +26,11 @@ test("hyphenated durations do not trigger a redundant question", () => {
   assert.deepEqual(clarificationQuestions("team-offsite", prompt), []);
 });
 
+test("a stated start and end time count as the plan duration", () => {
+  const prompt = "A Seattle date in October from 5 PM to 11 PM for two adults with a $250 budget, coffee, books, and dinner.";
+  assert.deepEqual(clarificationQuestions("date", prompt), []);
+});
+
 test("family trips ask for missing child ages", () => {
   const questions = clarificationQuestions("personal-trip", "Our family with kids is spending a week in Spain in June with a $5,000 budget for food and history.");
   assert.ok(questions.some((question) => question.id === "childrenAges"));
