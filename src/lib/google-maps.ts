@@ -289,7 +289,16 @@ export async function enrichPlanWithGoogle(plan: Plan) {
     for (const { item, previous, next } of candidates) {
       try {
         const places = await searchPlaces(contextualQuery(item, enriched, { previous, next }), placesKey);
-        const match = selectStrongPlace(places.filter((place) => !place.id || !usedPlaceIds.has(place.id)), item, enriched);
+        let match = selectStrongPlace(places.filter((place) => !place.id || !usedPlaceIds.has(place.id)), item, enriched);
+        const itemContext = `${item.title} ${item.description} ${item.location}`;
+        const canRetry = (item.type === "meal" && !/\b(hotel|meeting (?:room|space)|cater|on-site|onsite)\b/i.test(itemContext))
+          || (item.type === "activity" && !/\b(explor|stroll|walk|free time|downtime|flexible|neighborhood|taxi|rideshare|transfer|drop.?off|transport|workshop|strategy|breakout|facilitated|meeting room)\b/i.test(itemContext));
+        if (!match && canRetry) {
+          const typeHint = [...expectedGoogleTypes(item)][0].replaceAll("_", " ");
+          const focusedTitle = item.title.replace(/^(browse|visit|explore|have|enjoy|choose)\s+/i, "");
+          const retryPlaces = await searchPlaces(`${focusedTitle}, ${typeHint}, ${item.location}, ${enriched.location}`, placesKey, 8);
+          match = selectStrongPlace(retryPlaces.filter((place) => !place.id || !usedPlaceIds.has(place.id)), item, enriched);
+        }
         if (!match) continue;
         applyVerifiedPlace(item, match.place, match.score); if (match.place.id) usedPlaceIds.add(match.place.id); placesVerified += 1;
       } catch (error) { console.warn("Places enrichment unavailable", error instanceof Error ? error.message : "unknown error"); }
