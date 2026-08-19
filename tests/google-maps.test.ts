@@ -204,3 +204,17 @@ test("routine dietary-accommodation copy does not imply a hard allergy", () => {
   applyConstraintConfirmations(source);
   assert.doesNotMatch(meal.description, /Dietary suitability needs confirmation/);
 });
+
+test("a museum request does not resolve to a generic downtown district", () => {
+  const museum = item({ type: "activity", title: "Indoor cultural activity", description: "Visit a small museum or gallery", location: "Downtown Santa Monica" });
+  const source = { ...plan(museum), location: "Santa Monica, California" };
+  const district = { id: "district", displayName: { text: "Downtown Santa Monica" }, formattedAddress: "1351 3rd Street Promenade, Santa Monica, CA, USA", primaryType: "tourist_attraction", types: ["tourist_attraction"] };
+  assert.equal(selectStrongPlace([district], museum, source), null);
+});
+
+test("an on-site strategy workshop does not resolve to an entertainment venue", () => {
+  const workshop = item({ type: "activity", title: "Collaborative workshop", description: "Facilitated strategy session with breakout tables in the hotel meeting room", location: "Downtown Austin hotel" });
+  const source = { ...plan(workshop), location: "Austin, Texas" };
+  const games = { id: "games", displayName: { text: "Activate Games" }, formattedAddress: "Austin, TX, USA", primaryType: "amusement_center", types: ["amusement_center"] };
+  assert.equal(selectStrongPlace([games], workshop, source), null);
+});

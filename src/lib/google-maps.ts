@@ -43,6 +43,7 @@ function expectedGoogleTypes(item: PlanItem) {
   if (item.type === "nightlife") return new Set(["bar", "night_club", "wine_bar", "live_music_venue"]);
   if (item.type === "accommodation") return new Set(["hotel", "lodging", "resort_hotel", "hostel"]);
   const context = `${item.title} ${item.description}`.toLowerCase();
+  if (/museum|gallery/.test(context)) return new Set(["museum", "art_gallery"]);
   if (/book(?:shop|store)|books/.test(context)) return new Set(["book_store"]);
   if (/coffee|cafe|bakery/.test(context)) return new Set(["cafe", "coffee_shop", "bakery"]);
   if (/market/.test(context)) return new Set(["market", "farmers_market"]);
@@ -98,7 +99,9 @@ export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) 
   // Require some name/context agreement before attaching a specific Google place.
   if (item.type === "activity" && titleScore < 0.2 && /\b(explor|stroll|walk|free time|downtime|flexible|neighborhood)\b/i.test(`${item.title} ${item.description}`)) return Math.min(score, 0.35);
   if (item.type === "activity" && titleScore < 0.2 && /\b(taxi|rideshare|transfer|drop.?off|transport)\b/i.test(`${item.title} ${item.description}`)) return Math.min(score, 0.35);
-  if (item.type === "meal" && titleScore < 0.2 && /^(?:(?:group|hosted|working|casual|affordable|closing)\s+)*(?:breakfast|lunch|dinner|meal)\b/i.test(item.title)) return Math.min(score, 0.35);
+  if (item.type === "activity" && typeScore === 0 && /museum|gallery/i.test(`${item.title} ${item.description}`)) return Math.min(score, 0.35);
+  if (item.type === "activity" && titleScore < 0.2 && /\b(workshop|strategy|breakout|facilitated|meeting room)\b/i.test(`${item.title} ${item.description}`)) return Math.min(score, 0.35);
+  if (item.type === "meal" && titleScore < 0.2 && /\b(hotel|meeting (?:room|space)|cater|on-site|onsite)\b/i.test(`${item.title} ${item.description} ${item.location}`)) return Math.min(score, 0.35);
   return score;
 }
 
@@ -287,7 +290,7 @@ export async function enrichPlanWithGoogle(plan: Plan) {
   let placesVerified = 0; let routesCalculated = 0;
   for (const day of enriched.days) for (const item of day.items) normalizeSuggestedItem(item);
   if (placesKey) {
-    const candidates = enriched.days.flatMap((day) => day.items.map((item, index) => ({ item, previous: day.items[index - 1], next: day.items[index + 1] }))).filter(({ item }) => placeTypes.has(item.type) && !["google-verified", "live-availability", "verified"].includes(item.verification)).slice(0, 10);
+    const candidates = enriched.days.flatMap((day) => day.items.map((item, index) => ({ item, previous: day.items[index - 1], next: day.items[index + 1] }))).filter(({ item }) => placeTypes.has(item.type) && !["google-verified", "live-availability", "verified"].includes(item.verification)).slice(0, 14);
     const usedPlaceIds = new Set<string>();
     for (const { item, previous, next } of candidates) {
       try {
