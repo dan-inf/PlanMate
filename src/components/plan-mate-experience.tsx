@@ -118,6 +118,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
   const [saving, setSaving] = useState(false);
   const [editor, setEditor] = useState<DraftEditor | null>(null);
   const [editInstruction, setEditInstruction] = useState("");
+  const [wholePlanInstruction, setWholePlanInstruction] = useState("");
   const [alternatives, setAlternatives] = useState<PlanItem[]>([]);
   const [searchedAlternatives, setSearchedAlternatives] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -297,6 +298,28 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       const message = caughtError instanceof Error ? caughtError.message : "PlanMate could not update the plan.";
       setError(message); setEditError(message);
     } finally { setEditing(false); }
+  }
+
+  async function submitWholePlanEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!plan || wholePlanInstruction.trim().length < 3) return;
+    setEditing(true);
+    setError(null);
+    try {
+      const data = await requestEdit({
+        operation: "context",
+        plan,
+        instruction: wholePlanInstruction.trim(),
+      });
+      if (data.plan) {
+        commitDraft(data.plan);
+        setWholePlanInstruction("");
+      }
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not update the plan.");
+    } finally {
+      setEditing(false);
+    }
   }
 
   async function replaceItem(replacement: PlanItem) {
@@ -509,6 +532,25 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
             ) : null}
           </div>
 
+          {plan ? (
+            <section className="mb-7 rounded-[24px] border border-[#194d3a]/15 bg-[#eef3ed] p-4 shadow-[0_16px_45px_rgba(35,48,40,0.08)] sm:p-5" aria-labelledby="ask-planmate-heading">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-[#194d3a] text-[#f1c47b]"><Sparkles className="size-4" /></span>
+                <div>
+                  <h3 id="ask-planmate-heading" className="font-bold text-[#25362d]">Ask PlanMate to change the plan</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#65736b]">Make a broad change and PlanMate will preserve what still works.</p>
+                </div>
+              </div>
+              <form onSubmit={submitWholePlanEdit} className="mt-4 flex flex-col gap-2 rounded-2xl border border-[#1e2822]/10 bg-white p-2 shadow-sm sm:flex-row sm:items-end">
+                <label className="min-w-0 flex-1">
+                  <span className="sr-only">Describe a change to the whole plan</span>
+                  <textarea value={wholePlanInstruction} onChange={(event) => setWholePlanInstruction(event.target.value)} rows={2} maxLength={2000} placeholder="Make Saturday less packed, reduce driving, or bring the plan under $1,200…" className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 outline-none sm:text-base" />
+                </label>
+                <button type="submit" disabled={editing || wholePlanInstruction.trim().length < 3} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#d96545] px-5 text-sm font-bold text-white transition hover:bg-[#c75739] disabled:opacity-40">{editing ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}Update plan</button>
+              </form>
+            </section>
+          ) : null}
+
           <div className="grid overflow-hidden rounded-[28px] border border-[#1e2822]/10 bg-[#fffdf8] shadow-[0_30px_80px_rgba(35,48,40,0.12)] lg:grid-cols-[260px_minmax(0,1fr)_310px]">
             <aside className="border-b border-[#1e2822]/10 bg-[#f7f3eb] p-5 lg:border-b-0 lg:border-r lg:p-6">
               <div>
@@ -606,19 +648,6 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
                 </div>
               </div>
 
-              <div className="mt-6 rounded-[18px] border border-[#d15d3e]/15 bg-[#fff7ef] p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-[#9e4c36]">
-                  <Sparkles className="size-4" />
-                  Ask PlanMate
-                </div>
-                <p className="mt-2 text-xs leading-5 text-[#7e6e66]">
-                  “Make Saturday less packed” or “Bring this under $1,200.”
-                </p>
-                <button className="mt-3 flex w-full items-center justify-between rounded-xl bg-white px-3 py-2.5 text-left text-xs text-[#8b918d] shadow-sm">
-                  Change anything…
-                  <ArrowRight className="size-3.5 text-[#d15d3e]" />
-                </button>
-              </div>
             </aside>
           </div>
 
