@@ -113,15 +113,9 @@ export function selectStrongPlace(places: GooglePlace[], item: PlanItem, plan: P
 }
 
 function contextualQuery(item: PlanItem, plan: Plan, adjacent?: { previous?: PlanItem; next?: PlanItem }) {
-  if (/book(?:shop|store)|books/i.test(`${item.title} ${item.description}`)) return `${item.title}, ${item.location}, ${plan.location}`.slice(0, 300);
-  if (/coffee|cafe|bakery|waterfront|market/i.test(`${item.title} ${item.description}`)) return `${item.title}, ${item.type}, ${item.location}, ${plan.location}`.slice(0, 300);
-  const context = [
-    item.title, item.type, item.description, item.location, plan.location, plan.budgetLabel,
-    `${plan.partySize} people`, plan.considerations.join(" "),
-    adjacent?.previous ? `after ${adjacent.previous.title}` : "",
-    adjacent?.next ? `before ${adjacent.next.title}` : "",
-  ].filter(Boolean).join(", ");
-  return context.slice(0, 700);
+  void adjacent;
+  const focusedTitle = item.title.replace(/^(browse|visit|explore|have|enjoy|choose)\s+/i, "");
+  return [focusedTitle, item.type, item.location, plan.location, plan.budgetLabel, item.description.slice(0, 160)].filter(Boolean).join(", ").slice(0, 450);
 }
 
 async function searchPlaces(textQuery: string, apiKey: string, pageSize = 5) {
@@ -233,7 +227,7 @@ export function keepSingleAccommodationBase(plan: Plan) {
   const base = stays.find((item) => ["google-verified", "verified"].includes(item.verification) && item.placeId);
   if (!base) return plan;
   for (const stay of stays) {
-    if (stay === base || !/(overnight|second night|same lodging|check.?out|depart)/i.test(`${stay.title} ${stay.description}`)) continue;
+    if (stay === base || !/(overnight|second night|same (?:lodging|hotel|base)|check.?out|depart)/i.test(`${stay.title} ${stay.description}`)) continue;
     const description = stay.description;
     const time = stay.time;
     Object.assign(stay, structuredClone(base), { id: stay.id, description, time });
