@@ -18,9 +18,13 @@ import {
   MoreHorizontal,
   PartyPopper,
   Plane,
+  Plus,
+  Send,
+  Trash2,
   RotateCcw,
   Sparkles,
   Users,
+  X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -90,6 +94,10 @@ const statusLabels: Record<PlanItem["status"], string> = {
   booked: "Booked",
 };
 
+type DraftEditor =
+  | { kind: "alternatives"; item: PlanItem }
+  | { kind: "add"; afterIndex: number };
+
 function formatMoney(value: number, currency = "USD") {
   if (!value) return "TBD";
   return new Intl.NumberFormat("en-US", {
@@ -108,6 +116,13 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [editor, setEditor] = useState<DraftEditor | null>(null);
+  const [editInstruction, setEditInstruction] = useState("");
+  const [alternatives, setAlternatives] = useState<PlanItem[]>([]);
+  const [searchedAlternatives, setSearchedAlternatives] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [undoPlan, setUndoPlan] = useState<Plan | null>(null);
 
   useEffect(() => {
     if (!draftMode) return;
@@ -195,6 +210,86 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       setError(caughtError instanceof Error ? caughtError.message : "Could not save this plan.");
       setSaving(false);
     }
+  }
+
+  function commitDraft(nextPlan: Plan) {
+    if (plan) setUndoPlan(plan);
+    setPlan(nextPlan);
+    window.sessionStorage.setItem(
+      pendingPlanStorageKey,
+      JSON.stringify({ plan: nextPlan, category, prompt } satisfies PendingGeneratedPlan),
+    );
+  }
+
+  async function requestEdit(payload: Record<string, unknown>) {
+    const response = await fetch("/api/plan/edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = (await response.json()) as { plan?: Plan; alternatives?: PlanItem[]; error?: string };
+    if (!response.ok) throw new Error(data.error ?? "PlanMate could not update the plan.");
+    return data;
+  }
+
+  async function submitEditor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!plan || !editor || !editInstruction.trim()) return;
+    setEditing(true); setError(null); setEditError(null);
+    try {
+      if (editor.kind === "alternatives") {
+        const data = await requestEdit({ operation: "alternatives", plan, dayIndex: activeDay, itemId: editor.item.id, instruction: editInstruction });
+        setAlternatives(data.alternatives ?? []);
+        setSearchedAlternatives(true);
+      } else {
+        const data = await requestEdit({ operation: "add", plan, dayIndex: activeDay, insertAfterIndex: editor.afterIndex, instruction: editInstruction });
+        if (data.plan) commitDraft(data.plan);
+        closeEditor();
+      }
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "PlanMate could not update the plan.";
+      setError(message); setEditError(message);
+    } finally { setEditing(false); }
+  }
+
+  async function replaceItem(replacement: PlanItem) {
+    if (!plan || editor?.kind !== "alternatives") return;
+    setEditing(true); setError(null); setEditError(null);
+    try {
+      const data = await requestEdit({ operation: "replace", plan, dayIndex: activeDay, itemId: editor.item.id, replacement });
+      if (data.plan) commitDraft(data.plan);
+      closeEditor();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "PlanMate could not replace that stop.";
+      setError(message); setEditError(message);
+    } finally { setEditing(false); }
+  }
+
+  async function removeItem(item: PlanItem) {
+    if (!plan) return;
+    setEditing(true); setError(null);
+    try {
+      const data = await requestEdit({ operation: "remove", plan, dayIndex: activeDay, itemId: item.id, instruction: `Remove ${item.title} and reflow the remaining day.` });
+      if (data.plan) commitDraft(data.plan);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not remove that stop.");
+    } finally { setEditing(false); }
+  }
+
+  function openEditor(nextEditor: DraftEditor) {
+    setEditor(nextEditor); setAlternatives([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null); setError(null);
+  }
+
+  function closeEditor() {
+    setEditor(null); setAlternatives([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null);
+  }
+
+  function undoLastEdit() {
+    if (!undoPlan) return;
+    const previous = undoPlan;
+    setUndoPlan(plan);
+    setPlan(previous);
+    window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify({ plan: previous, category, prompt } satisfies PendingGeneratedPlan));
   }
 
   const displayedPlan = plan ?? samplePlan;
@@ -362,6 +457,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
 
             {plan ? (
               <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+                {undoPlan ? <button type="button" onClick={undoLastEdit} className="inline-flex items-center justify-center gap-2 rounded-full border border-[#1e2822]/15 bg-white/70 px-4 py-3 text-sm font-semibold"><RotateCcw className="size-4" />Undo edit</button> : null}
                 <button type="button" onClick={() => { setPlan(null); router.push("/"); }} className="inline-flex items-center justify-center gap-2 rounded-full border border-[#1e2822]/15 bg-white/70 px-4 py-3 text-sm font-semibold"><RotateCcw className="size-4" />Start another</button>
                 <button type="button" onClick={savePlan} disabled={saving} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#d96545] px-6 text-sm font-bold text-white shadow-[0_10px_26px_rgba(217,101,69,0.25)] transition hover:-translate-y-0.5 hover:bg-[#c75739] disabled:opacity-60">{saving ? <LoaderCircle className="size-4 animate-spin" /> : <LogIn className="size-4" />}Save this plan</button>
               </div>
@@ -425,7 +521,8 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
 
               <div className="relative space-y-3 before:absolute before:bottom-7 before:left-[19px] before:top-7 before:w-px before:bg-[#1e2822]/10">
                 {activityItems.map((item, index) => (
-                  <article key={item.id} className="relative grid grid-cols-[40px_minmax(0,1fr)] gap-4">
+                  <div key={item.id} className="relative">
+                  <article className="relative grid grid-cols-[40px_minmax(0,1fr)] gap-4">
                     <div className="relative z-10 mt-5 grid size-10 place-items-center rounded-full border-4 border-[#fffdf8] bg-[#e8eee8] text-[#194d3a]">
                       {index === 0 ? <MapPin className="size-4" /> : <Clock3 className="size-4" />}
                     </div>
@@ -446,9 +543,15 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
                         {item.travelMinutes > 0 ? <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" />{item.travelMinutes} min</span> : null}
                         {item.verification === "verified" ? <span className="font-bold text-[#2b684a]">Google verified</span> : null}
                       </div>
-                      {item.bookingUrl ? <a href={item.bookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">View in Google Maps<ExternalLink className="size-3" /></a> : null}
+                      <div className="mt-3 flex flex-wrap items-center gap-4">
+                        {item.bookingUrl ? <a href={item.bookingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-bold text-[#315d45]">View in Google Maps<ExternalLink className="size-3" /></a> : null}
+                        {plan && ["meal", "activity", "nightlife"].includes(item.type) ? <button type="button" onClick={() => openEditor({ kind: "alternatives", item })} className="text-xs font-bold text-[#c3573b]">Explore alternatives</button> : null}
+                        {plan ? <button type="button" onClick={() => removeItem(item)} disabled={editing} className="inline-flex items-center gap-1 text-xs font-bold text-[#7c817e] transition hover:text-[#a4452f] disabled:opacity-50"><Trash2 className="size-3" />Remove</button> : null}
+                      </div>
                     </div>
                   </article>
+                  {plan ? <div className="relative z-20 ml-14 flex h-10 items-center"><button type="button" onClick={() => openEditor({ kind: "add", afterIndex: displayedPlan.days[activeDay].items.findIndex((candidate) => candidate.id === item.id) })} className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-[#194d3a]/25 bg-[#fffdf8] px-3 py-1.5 text-xs font-bold text-[#315d45] transition hover:border-[#194d3a]/50 hover:bg-white"><Plus className="size-3.5" />Add a stop here</button></div> : null}
+                  </div>
                 ))}
               </div>
             </div>
@@ -506,6 +609,30 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
           </div>
         </div>
       </section>
+
+      {editor ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#17251e]/45 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label={editor.kind === "alternatives" ? "Explore alternatives" : "Add a plan stop"}>
+        <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-[#fffdf8] shadow-2xl sm:rounded-[28px]">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1e2822]/8 bg-[#fffdf8]/95 px-5 py-4 backdrop-blur sm:px-6">
+            <div><p className="text-xs font-bold uppercase tracking-[.14em] text-[#d15d3e]">Ask PlanMate</p><h3 className="mt-1 text-xl font-bold">{editor.kind === "alternatives" ? `Explore alternatives to ${editor.item.title}` : "What should we add here?"}</h3></div>
+            <button type="button" onClick={closeEditor} className="grid size-10 place-items-center rounded-full bg-[#f0eee8]" aria-label="Close"><X className="size-4" /></button>
+          </div>
+          <div className="p-5 sm:p-6">
+            {editor.kind === "alternatives" ? <div className="mb-5 rounded-2xl border border-[#194d3a]/12 bg-[#eef3ed] p-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#587166]">Current choice</p><p className="mt-1 font-bold">{editor.item.title}</p><p className="mt-1 text-sm text-[#6d7a72]">{editor.item.location}</p></div> : null}
+            <p className="text-sm leading-6 text-[#65736b]">{editor.kind === "alternatives" ? "Tell us what should be different. We’ll keep the rest of your plan in context." : "Describe the stop naturally. PlanMate will insert it and adjust the day’s timing and flow."}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {(editor.kind === "alternatives" ? ["More romantic", "Less expensive", "Closer to the next stop", "More casual"] : ["A drink spot before dinner", "A coffee stop", "Something outdoors", "Add some downtime"]).map((suggestion) => <button key={suggestion} type="button" onClick={() => setEditInstruction(suggestion)} className="rounded-full border border-[#1e2822]/10 bg-[#f6f3ed] px-3 py-2 text-xs font-semibold text-[#526159]">{suggestion}</button>)}
+            </div>
+            <form onSubmit={submitEditor} className="mt-5 flex items-end gap-2 rounded-2xl border border-[#1e2822]/12 bg-white p-2 shadow-sm">
+              <label className="min-w-0 flex-1"><span className="sr-only">Describe the change</span><textarea value={editInstruction} onChange={(event) => setEditInstruction(event.target.value)} rows={2} maxLength={500} placeholder={editor.kind === "alternatives" ? "I want somewhere quieter and more intimate…" : "How about a drink spot before dinner?"} className="w-full resize-none bg-transparent px-3 py-2 text-sm outline-none" /></label>
+              <button disabled={editing || editInstruction.trim().length < 3} className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#d96545] text-white disabled:opacity-40" aria-label="Send request">{editing ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button>
+            </form>
+            {editError ? <p role="alert" className="mt-3 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">{editError}</p> : null}
+            {editor.kind === "alternatives" && alternatives.length ? <div className="mt-6 space-y-3"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#69766e]">Google-verified options</p>{alternatives.map((alternative) => <div key={alternative.id} className="rounded-2xl border border-[#1e2822]/9 bg-white p-4"><div className="flex items-start justify-between gap-4"><div><h4 className="font-bold">{alternative.title}</h4><p className="mt-1 text-sm text-[#6d7a72]">{alternative.location}</p><p className="mt-2 text-xs text-[#315d45]">Matches “{editInstruction}”</p></div><button type="button" disabled={editing} onClick={() => replaceItem(alternative)} className="shrink-0 rounded-full bg-[#194d3a] px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Choose</button></div>{alternative.bookingUrl ? <a href={alternative.bookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#315d45]">View on Maps<ExternalLink className="size-3" /></a> : null}</div>)}</div> : null}
+            {editor.kind === "alternatives" && searchedAlternatives && !alternatives.length ? <p className="mt-5 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">No strong matches came back. Try describing a neighborhood, cuisine, price point, or vibe.</p> : null}
+            {editor.kind === "alternatives" ? <button type="button" onClick={closeEditor} className="mt-5 w-full py-2 text-sm font-semibold text-[#65736b]">Keep original choice</button> : null}
+          </div>
+        </div>
+      </div> : null}
 
       <footer className="bg-[#183b2d] px-5 py-10 text-white sm:px-8 lg:px-12">
         <div className="mx-auto flex max-w-[1280px] flex-col justify-between gap-6 sm:flex-row sm:items-center">

@@ -38,6 +38,44 @@ async function findPlace(item: PlanItem, plan: Plan, apiKey: string) {
   return data.places?.[0] ?? null;
 }
 
+export async function findAlternativePlaces(plan: Plan, item: PlanItem, instruction: string) {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
+  if (!apiKey) return [];
+  const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.googleMapsUri,places.location",
+    },
+    body: JSON.stringify({
+      textQuery: `${instruction}. ${item.type === "meal" ? "Restaurant" : item.type} near ${item.location}, ${plan.location}`,
+      pageSize: 5,
+      languageCode: "en",
+    }),
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Places API returned ${response.status}`);
+  const data = (await response.json()) as { places?: GooglePlace[] };
+  return (data.places ?? [])
+    .filter((place) => place.id && place.id !== item.placeId && place.displayName?.text && place.formattedAddress)
+    .slice(0, 3)
+    .map((place, index): PlanItem => ({
+      ...item,
+      id: `${item.id}-alternative-${place.id ?? index}`,
+      title: place.displayName?.text ?? "Alternative",
+      description: `A Google-verified alternative matching: ${instruction}`,
+      location: place.formattedAddress ?? plan.location,
+      status: "needs-booking",
+      verification: "verified",
+      bookingUrl: place.googleMapsUri ?? null,
+      placeId: place.id ?? null,
+      latitude: place.location?.latitude ?? null,
+      longitude: place.location?.longitude ?? null,
+      travelMinutes: 0,
+    }));
+}
+
 function durationMinutes(duration?: string) {
   const seconds = Number(duration?.replace(/s$/, ""));
   return Number.isFinite(seconds) ? Math.max(1, Math.round(seconds / 60)) : null;
@@ -76,7 +114,10 @@ export async function enrichPlanWithGoogle(plan: Plan) {
   let routesCalculated = 0;
 
   if (placesKey) {
-    const candidates = enriched.days.flatMap((day) => day.items).filter((item) => placeTypes.has(item.type)).slice(0, 10);
+    const candidates = enriched.days
+      .flatMap((day) => day.items)
+      .filter((item) => placeTypes.has(item.type) && item.verification !== "verified")
+      .slice(0, 10);
     await Promise.all(candidates.map(async (item) => {
       try {
         const place = await findPlace(item, enriched, placesKey);
