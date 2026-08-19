@@ -15,6 +15,7 @@ import {
   MessageCircle,
   MapPin,
   Plus,
+  RotateCcw,
   Send,
   Sparkles,
   ThumbsDown,
@@ -25,7 +26,7 @@ import {
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { planCategorySchema, planSchema } from "@/lib/plan-schema";
+import { planCategorySchema, planSchema, type Plan } from "@/lib/plan-schema";
 import { samplePlan } from "@/lib/sample-plan";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -44,10 +45,14 @@ type PlanRow = {
   approval_version: number;
   finalized_at: string | null;
   approval_rule: "unanimous" | "majority" | "owner-decides";
+  participant_count: number;
+  budget_per_person: number | null;
+  currency: string;
+  edit_version: number;
 };
 type Member = { plan_id: string; user_id: string; role: "owner" | "editor" | "collaborator"; display_name: string };
-type Item = { id: string; plan_id: string; day_id: string; title: string; description: string; location_name: string; start_time: string | null; sort_order: number; estimated_cost_per_person: number | null; travel_minutes: number | null; booking_status: "idea" | "selected" | "needs-booking" | "booked" | "cancelled"; booking_url: string | null };
-type Day = { id: string; label: string; day_index: number; items: Item[] };
+type Item = { id: string; plan_id: string; day_id: string; item_type: Plan["days"][number]["items"][number]["type"]; title: string; description: string; location_name: string; start_time: string | null; sort_order: number; estimated_cost_per_person: number | null; travel_minutes: number | null; travel_mode: "walk" | "drive" | null; route_distance_meters: number | null; booking_status: "idea" | "selected" | "needs-booking" | "booked" | "cancelled"; verification_status: string; booking_url: string | null; google_maps_url: string | null; website_url: string | null; place_id: string | null; latitude: number | null; longitude: number | null; business_status: string | null; rating: number | null; user_rating_count: number | null; price_level: string | null; regular_opening_hours: string[] | null; match_reason: string | null };
+type Day = { id: string; label: string; day_index: number; plan_date: string | null; items: Item[] };
 type Vote = { plan_item_id: string; user_id: string; value: -1 | 1 };
 type Comment = { id: string; plan_item_id: string; user_id: string; body: string; created_at: string };
 type Approval = { user_id: string; plan_version: number };
@@ -76,20 +81,26 @@ export function CollaborationWorkspace() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedEditInstruction, setSavedEditInstruction] = useState("");
+  const [proposedPlan, setProposedPlan] = useState<Plan | null>(null);
+  const [proposedSummary, setProposedSummary] = useState<string[]>([]);
+  const [editBusy, setEditBusy] = useState(false);
+  const [latestEditId, setLatestEditId] = useState<string | null>(null);
   const handledEntryAction = useRef(false);
 
   const loadPlan = useCallback(async (planId: string) => {
     setBusy(true);
     setError(null);
-    const [planResult, daysResult, itemsResult, membersResult, approvalsResult, invitationsResult] = await Promise.all([
-      supabase.from("plans").select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule").eq("id", planId).single(),
-      supabase.from("plan_days").select("id,label,day_index").eq("plan_id", planId).order("day_index"),
-      supabase.from("plan_items").select("id,plan_id,day_id,title,description,location_name,start_time,sort_order,estimated_cost_per_person,travel_minutes,booking_status,booking_url").eq("plan_id", planId).order("sort_order"),
+    const [planResult, daysResult, itemsResult, membersResult, approvalsResult, invitationsResult, editEventsResult] = await Promise.all([
+      supabase.from("plans").select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule,participant_count,budget_per_person,currency,edit_version").eq("id", planId).single(),
+      supabase.from("plan_days").select("id,label,day_index,plan_date").eq("plan_id", planId).order("day_index"),
+      supabase.from("plan_items").select("id,plan_id,day_id,item_type,title,description,location_name,start_time,sort_order,estimated_cost_per_person,travel_minutes,travel_mode,route_distance_meters,booking_status,verification_status,booking_url,google_maps_url,website_url,place_id,latitude,longitude,business_status,rating,user_rating_count,price_level,regular_opening_hours,match_reason").eq("plan_id", planId).is("archived_at", null).order("sort_order"),
       supabase.from("plan_members").select("plan_id,user_id,role").eq("plan_id", planId),
       supabase.from("plan_approvals").select("user_id,plan_version").eq("plan_id", planId),
       supabase.from("plan_invitations").select("id,email,status,expires_at,created_at").eq("plan_id", planId).order("created_at", { ascending: false }),
+      supabase.from("plan_edit_events").select("id").eq("plan_id", planId).is("undone_at", null).order("created_at", { ascending: false }).limit(1),
     ]);
-    const firstError = planResult.error ?? daysResult.error ?? itemsResult.error ?? membersResult.error ?? approvalsResult.error ?? invitationsResult.error;
+    const firstError = planResult.error ?? daysResult.error ?? itemsResult.error ?? membersResult.error ?? approvalsResult.error ?? invitationsResult.error ?? editEventsResult.error;
     if (firstError || !planResult.data) {
       setError(firstError?.message ?? "Plan not found.");
       setBusy(false);
@@ -112,13 +123,14 @@ export function CollaborationWorkspace() {
     setComments((commentsResult.data ?? []) as Comment[]);
     setApprovals((approvalsResult.data ?? []) as Approval[]);
     setInvitations((invitationsResult.data ?? []) as Invitation[]);
+    setLatestEditId((editEventsResult.data?.[0]?.id as string | undefined) ?? null);
     setBusy(false);
   }, [supabase]);
 
   const loadPlans = useCallback(async (preferredPlanId?: string) => {
     const { data, error: queryError } = await supabase
       .from("plans")
-      .select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule")
+      .select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule,participant_count,budget_per_person,currency,edit_version")
       .order("updated_at", { ascending: false });
     if (queryError) setError(queryError.message);
     const nextPlans = (data ?? []) as PlanRow[];
@@ -298,10 +310,134 @@ export function CollaborationWorkspace() {
     setBusy(false);
   }
 
+  function savedPlanAsEditablePlan(): Plan | null {
+    if (!plan) return null;
+    return {
+      title: plan.title,
+      summary: plan.description,
+      location: plan.primary_location,
+      dateLabel: days.map((day) => day.plan_date ?? day.label).join(" – "),
+      partySize: plan.participant_count,
+      currency: plan.currency,
+      budgetLabel: plan.budget_per_person ? `${plan.currency} ${plan.budget_per_person} per person` : "Budget not set",
+      estimatedTotalPerPerson: plan.budget_per_person ?? 0,
+      budget: [{ category: "Current plan", total: (plan.budget_per_person ?? 0) * plan.participant_count, perPerson: plan.budget_per_person ?? 0 }],
+      considerations: [],
+      days: days.map((day) => ({
+        label: day.label,
+        date: day.plan_date ?? "",
+        items: day.items.map((item) => ({
+          id: item.id,
+          time: item.start_time?.slice(0, 5) ?? "",
+          title: item.title,
+          type: item.item_type,
+          description: item.description,
+          location: item.location_name,
+          costPerPerson: item.estimated_cost_per_person ?? 0,
+          travelMinutes: item.travel_minutes ?? 0,
+          travelMode: item.travel_mode,
+          routeDistanceMeters: item.route_distance_meters,
+          status: item.booking_status === "cancelled" ? "idea" : item.booking_status,
+          verification: item.verification_status as Plan["days"][number]["items"][number]["verification"],
+          bookingUrl: item.booking_url,
+          googleMapsUrl: item.google_maps_url,
+          websiteUrl: item.website_url,
+          placeId: item.place_id,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          businessStatus: item.business_status,
+          rating: item.rating,
+          userRatingCount: item.user_rating_count,
+          priceLevel: item.price_level,
+          regularOpeningHours: item.regular_opening_hours,
+          matchReason: item.match_reason,
+        })),
+      })),
+    };
+  }
+
+  async function proposeSavedEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const currentPlan = savedPlanAsEditablePlan();
+    if (!currentPlan || savedEditInstruction.trim().length < 3) return;
+    setEditBusy(true); setError(null); setProposedPlan(null);
+    try {
+      const response = await fetch("/api/plan/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operation: "context", plan: currentPlan, instruction: savedEditInstruction.trim() }),
+      });
+      const data = (await response.json()) as { plan?: Plan; error?: string };
+      if (!response.ok || !data.plan) throw new Error(data.error ?? "PlanMate could not prepare that change.");
+      const beforeItems = new Map(currentPlan.days.flatMap((day) => day.items).map((item) => [item.id, item]));
+      const afterItems = new Map(data.plan.days.flatMap((day) => day.items).map((item) => [item.id, item]));
+      const added = [...afterItems.keys()].filter((id) => !beforeItems.has(id)).length;
+      const removed = [...beforeItems.keys()].filter((id) => !afterItems.has(id)).length;
+      const changed = [...afterItems.entries()].filter(([id, item]) => {
+        const before = beforeItems.get(id);
+        return before && JSON.stringify(before) !== JSON.stringify(item);
+      }).length;
+      const summary = [
+        data.plan.partySize !== currentPlan.partySize ? `Headcount: ${currentPlan.partySize} → ${data.plan.partySize}` : "",
+        added ? `${added} stop${added === 1 ? "" : "s"} added` : "",
+        removed ? `${removed} stop${removed === 1 ? "" : "s"} removed` : "",
+        changed ? `${changed} existing stop${changed === 1 ? "" : "s"} adjusted` : "",
+        data.plan.estimatedTotalPerPerson !== currentPlan.estimatedTotalPerPerson ? `Estimated cost: ${currentPlan.estimatedTotalPerPerson} → ${data.plan.estimatedTotalPerPerson} ${data.plan.currency} per person` : "",
+      ].filter(Boolean);
+      setProposedPlan(data.plan);
+      setProposedSummary(summary.length ? summary : ["Plan details and sequencing will be updated."]);
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not prepare that change.");
+    } finally { setEditBusy(false); }
+  }
+
+  async function applySavedEdit() {
+    if (!plan || !proposedPlan) return;
+    setEditBusy(true); setError(null);
+    const payload = {
+      ...proposedPlan,
+      days: proposedPlan.days.map((day, dayIndex) => ({
+        ...day,
+        dayIndex,
+        items: day.items.map((item, sortOrder) => ({ ...item, sortOrder })),
+      })),
+    };
+    const { error: applyError } = await supabase.rpc("apply_saved_plan_edit", {
+      target_plan_id: plan.id,
+      expected_edit_version: plan.edit_version,
+      edit_idempotency_key: crypto.randomUUID(),
+      edit_instruction: savedEditInstruction.trim(),
+      edited_plan: payload,
+    });
+    if (applyError) setError(applyError.message);
+    else {
+      setNotice(plan.status === "approval-pending" || plan.status === "agreed" ? "Plan updated. Final agreement was reopened." : "Plan updated and saved.");
+      setSavedEditInstruction(""); setProposedPlan(null); setProposedSummary([]);
+      await loadPlan(plan.id);
+    }
+    setEditBusy(false);
+  }
+
+  async function undoSavedEdit() {
+    if (!plan || !latestEditId) return;
+    setEditBusy(true); setError(null);
+    const { error: undoError } = await supabase.rpc("undo_saved_plan_edit", {
+      target_plan_id: plan.id,
+      target_event_id: latestEditId,
+    });
+    if (undoError) setError(undoError.message);
+    else {
+      setNotice("The last saved edit was undone.");
+      await loadPlan(plan.id);
+    }
+    setEditBusy(false);
+  }
+
   if (checkingAuth) return <FullPageLoader />;
   if (!user) return <AuthScreen supabase={supabase} />;
 
   const owner = plan?.owner_id === user.id;
+  const canEdit = owner || members.some((member) => member.user_id === user.id && member.role === "editor");
   const collaborators = members.filter((member) => member.role !== "owner");
   const approvedIds = new Set(approvals.filter((approval) => approval.plan_version === plan?.approval_version).map((approval) => approval.user_id));
   const currentUserApproved = approvedIds.has(user.id);
@@ -333,6 +469,8 @@ export function CollaborationWorkspace() {
               <div><Link href="/" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[#657168] transition hover:text-[#194d3a]"><ArrowLeft className="size-4" />Back to planner</Link><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[.08em] ${plan.status === "agreed" ? "bg-[#dcecdf] text-[#246143]" : plan.status === "approval-pending" ? "bg-[#fff0d8] text-[#8d5b15]" : "bg-[#e8ece8] text-[#55635b]"}`}>{statusCopy[plan.status]}</span>{plan.status === "agreed" ? <LockKeyhole className="size-4 text-[#2c6b4c]" /> : null}</div><h1 className="mt-5 max-w-3xl font-serif text-4xl leading-[1.05] tracking-[-0.045em] sm:text-5xl">{plan.title}</h1><p className="mt-3 max-w-2xl leading-7 text-[#68756d]">{plan.description}</p><div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[#68756d]"><span className="flex items-center gap-2"><MapPin className="size-4 text-[#d15d3e]" />{plan.primary_location}</span><span className="flex items-center gap-2"><CalendarDays className="size-4 text-[#d15d3e]" />{days.length} {days.length === 1 ? "day" : "days"}</span><span className="flex items-center gap-2"><Users className="size-4 text-[#d15d3e]" />{members.length} {members.length === 1 ? "member" : "members"}</span></div></div>
               <ApprovalCard plan={plan} owner={owner} busy={busy} collaborators={collaborators} approvedIds={approvedIds} currentUserApproved={currentUserApproved} onRequest={requestApproval} onAgree={agree} onRule={changeApprovalRule} />
             </div>
+
+            {canEdit ? <section className="mt-8 rounded-[24px] border border-[#194d3a]/15 bg-[#e9f0ea] p-4 shadow-sm sm:p-5" aria-labelledby="saved-ask-planmate-heading"><div className="flex items-start justify-between gap-3"><div className="flex items-start gap-3"><span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-[#194d3a] text-[#f1c47b]"><Sparkles className="size-4" /></span><div><h2 id="saved-ask-planmate-heading" className="font-bold">Ask PlanMate to change this plan</h2><p className="mt-1 text-sm leading-6 text-[#65736b]">Describe a broad change. You’ll review what changes before it is saved.</p></div></div>{latestEditId ? <button type="button" disabled={editBusy} onClick={undoSavedEdit} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-bold text-[#526159] disabled:opacity-50"><RotateCcw className="size-3.5" />Undo</button> : null}</div><form onSubmit={proposeSavedEdit} className="mt-4 flex flex-col gap-2 rounded-2xl border border-[#1e2822]/10 bg-white p-2 sm:flex-row sm:items-end"><label className="min-w-0 flex-1"><span className="sr-only">Describe a change to the saved plan</span><textarea value={savedEditInstruction} onChange={(event) => { setSavedEditInstruction(event.target.value); setProposedPlan(null); }} rows={2} maxLength={2000} placeholder="Make this cheaper, reduce driving, or move dinner later…" className="w-full resize-none bg-transparent px-3 py-2 text-sm leading-6 outline-none sm:text-base" /></label><button disabled={editBusy || savedEditInstruction.trim().length < 3} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#d96545] px-5 text-sm font-bold text-white disabled:opacity-40">{editBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}Review change</button></form>{proposedPlan ? <div className="mt-4 rounded-2xl border border-[#194d3a]/15 bg-[#fffdf8] p-4"><p className="text-xs font-bold uppercase tracking-[.14em] text-[#d15d3e]">Proposed update</p><ul className="mt-3 space-y-1.5 text-sm text-[#59675f]">{proposedSummary.map((summary) => <li key={summary}>• {summary}</li>)}</ul><div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" onClick={() => setProposedPlan(null)} className="rounded-full px-4 py-2.5 text-sm font-semibold text-[#657168]">Keep current plan</button><button type="button" disabled={editBusy} onClick={applySavedEdit} className="rounded-full bg-[#194d3a] px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">Apply and save</button></div></div> : null}</section> : null}
 
             <div className="mt-10 grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="min-w-0">
