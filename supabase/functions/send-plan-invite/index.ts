@@ -54,16 +54,24 @@ Deno.serve(async (request) => {
     return json({ error: "Only the plan owner can send invitations" }, 403);
   }
 
-  const { data: invitation, error: inviteError } = await supabase
+  const { data: existing } = await supabase
     .from("plan_invitations")
-    .insert({ plan_id: planId, invited_by: authData.user.id, email, role: "collaborator" })
-    .select("id,token")
-    .single();
+    .select("id")
+    .eq("plan_id", planId)
+    .eq("email", email)
+    .eq("status", "pending")
+    .maybeSingle();
+  const token = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+  const invitationQuery = existing
+    ? supabase.from("plan_invitations").update({ token, expires_at: expiresAt }).eq("id", existing.id)
+    : supabase.from("plan_invitations").insert({ plan_id: planId, invited_by: authData.user.id, email, role: "collaborator", token, expires_at: expiresAt });
+  const { data: invitation, error: inviteError } = await invitationQuery.select("id,token").single();
   if (inviteError || !invitation) return json({ error: inviteError?.message ?? "Could not create invitation" }, 400);
 
   const resendKey = Deno.env.get("RESEND_API_KEY");
   if (!resendKey) {
-    await supabase.from("plan_invitations").delete().eq("id", invitation.id);
+    if (!existing) await supabase.from("plan_invitations").delete().eq("id", invitation.id);
     return json({ error: "Invitation email delivery is not configured" }, 503);
   }
 
@@ -82,7 +90,7 @@ Deno.serve(async (request) => {
   });
 
   if (!emailResponse.ok) {
-    await supabase.from("plan_invitations").delete().eq("id", invitation.id);
+    if (!existing) await supabase.from("plan_invitations").delete().eq("id", invitation.id);
     return json({ error: "The invitation email could not be sent" }, 502);
   }
 

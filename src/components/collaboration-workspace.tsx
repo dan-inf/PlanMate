@@ -43,6 +43,7 @@ type PlanRow = {
   status: "draft" | "active" | "approval-pending" | "agreed" | "archived";
   approval_version: number;
   finalized_at: string | null;
+  approval_rule: "unanimous" | "majority" | "owner-decides";
 };
 type Member = { plan_id: string; user_id: string; role: "owner" | "editor" | "collaborator"; display_name: string };
 type Item = { id: string; plan_id: string; day_id: string; title: string; description: string; location_name: string; start_time: string | null; sort_order: number; estimated_cost_per_person: number | null; travel_minutes: number | null; booking_status: "idea" | "selected" | "needs-booking" | "booked" | "cancelled"; booking_url: string | null };
@@ -50,6 +51,7 @@ type Day = { id: string; label: string; day_index: number; items: Item[] };
 type Vote = { plan_item_id: string; user_id: string; value: -1 | 1 };
 type Comment = { id: string; plan_item_id: string; user_id: string; body: string; created_at: string };
 type Approval = { user_id: string; plan_version: number };
+type Invitation = { id: string; email: string; status: "pending" | "accepted" | "revoked" | "expired"; expires_at: string; created_at: string };
 
 const statusCopy = {
   draft: "Draft",
@@ -66,11 +68,11 @@ export function CollaborationWorkspace() {
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [plan, setPlan] = useState<PlanRow | null>(null);
   const [days, setDays] = useState<Day[]>([]);
-  const [activeDayId, setActiveDayId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,14 +81,15 @@ export function CollaborationWorkspace() {
   const loadPlan = useCallback(async (planId: string) => {
     setBusy(true);
     setError(null);
-    const [planResult, daysResult, itemsResult, membersResult, approvalsResult] = await Promise.all([
-      supabase.from("plans").select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at").eq("id", planId).single(),
+    const [planResult, daysResult, itemsResult, membersResult, approvalsResult, invitationsResult] = await Promise.all([
+      supabase.from("plans").select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule").eq("id", planId).single(),
       supabase.from("plan_days").select("id,label,day_index").eq("plan_id", planId).order("day_index"),
       supabase.from("plan_items").select("id,plan_id,day_id,title,description,location_name,start_time,sort_order,estimated_cost_per_person,travel_minutes,booking_status,booking_url").eq("plan_id", planId).order("sort_order"),
       supabase.from("plan_members").select("plan_id,user_id,role").eq("plan_id", planId),
       supabase.from("plan_approvals").select("user_id,plan_version").eq("plan_id", planId),
+      supabase.from("plan_invitations").select("id,email,status,expires_at,created_at").eq("plan_id", planId).order("created_at", { ascending: false }),
     ]);
-    const firstError = planResult.error ?? daysResult.error ?? itemsResult.error ?? membersResult.error ?? approvalsResult.error;
+    const firstError = planResult.error ?? daysResult.error ?? itemsResult.error ?? membersResult.error ?? approvalsResult.error ?? invitationsResult.error;
     if (firstError || !planResult.data) {
       setError(firstError?.message ?? "Plan not found.");
       setBusy(false);
@@ -104,18 +107,18 @@ export function CollaborationWorkspace() {
     setPlan(planResult.data as PlanRow);
     const nextDays = ((daysResult.data ?? []) as Omit<Day, "items">[]).map((day) => ({ ...day, items: itemRows.filter((item) => item.day_id === day.id) }));
     setDays(nextDays);
-    setActiveDayId((current) => nextDays.some((day) => day.id === current) ? current : nextDays[0]?.id ?? null);
     setMembers(memberRows.map((member) => ({ ...member, display_name: profileMap.get(member.user_id) || "PlanMate member" })));
     setVotes((votesResult.data ?? []) as Vote[]);
     setComments((commentsResult.data ?? []) as Comment[]);
     setApprovals((approvalsResult.data ?? []) as Approval[]);
+    setInvitations((invitationsResult.data ?? []) as Invitation[]);
     setBusy(false);
   }, [supabase]);
 
   const loadPlans = useCallback(async (preferredPlanId?: string) => {
     const { data, error: queryError } = await supabase
       .from("plans")
-      .select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at")
+      .select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule")
       .order("updated_at", { ascending: false });
     if (queryError) setError(queryError.message);
     const nextPlans = (data ?? []) as PlanRow[];
@@ -265,6 +268,12 @@ export function CollaborationWorkspace() {
     setBusy(false);
   }
 
+  async function changeApprovalRule(rule: PlanRow["approval_rule"]) {
+    if (!plan || !owner) return;
+    const { error: ruleError } = await supabase.from("plans").update({ approval_rule: rule }).eq("id", plan.id);
+    if (ruleError) setError(ruleError.message); else await loadPlan(plan.id);
+  }
+
   async function agree() {
     if (!plan) return;
     setBusy(true);
@@ -282,7 +291,6 @@ export function CollaborationWorkspace() {
   const collaborators = members.filter((member) => member.role !== "owner");
   const approvedIds = new Set(approvals.filter((approval) => approval.plan_version === plan?.approval_version).map((approval) => approval.user_id));
   const currentUserApproved = approvedIds.has(user.id);
-  const activeDay = days.find((day) => day.id === activeDayId) ?? days[0];
   const totalItems = days.reduce((total, day) => total + day.items.length, 0);
   const openComments = comments.length;
 
@@ -309,17 +317,14 @@ export function CollaborationWorkspace() {
           {!plan ? <EmptyWorkspace busy={busy} onCreate={createDemoPlan} /> : <>
             <div className="flex flex-col gap-7 xl:flex-row xl:items-start xl:justify-between">
               <div><Link href="/" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[#657168] transition hover:text-[#194d3a]"><ArrowLeft className="size-4" />Back to planner</Link><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[.08em] ${plan.status === "agreed" ? "bg-[#dcecdf] text-[#246143]" : plan.status === "approval-pending" ? "bg-[#fff0d8] text-[#8d5b15]" : "bg-[#e8ece8] text-[#55635b]"}`}>{statusCopy[plan.status]}</span>{plan.status === "agreed" ? <LockKeyhole className="size-4 text-[#2c6b4c]" /> : null}</div><h1 className="mt-5 max-w-3xl font-serif text-4xl leading-[1.05] tracking-[-0.045em] sm:text-5xl">{plan.title}</h1><p className="mt-3 max-w-2xl leading-7 text-[#68756d]">{plan.description}</p><div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[#68756d]"><span className="flex items-center gap-2"><MapPin className="size-4 text-[#d15d3e]" />{plan.primary_location}</span><span className="flex items-center gap-2"><CalendarDays className="size-4 text-[#d15d3e]" />{days.length} {days.length === 1 ? "day" : "days"}</span><span className="flex items-center gap-2"><Users className="size-4 text-[#d15d3e]" />{members.length} {members.length === 1 ? "member" : "members"}</span></div></div>
-              <ApprovalCard plan={plan} owner={owner} busy={busy} collaborators={collaborators} approvedIds={approvedIds} currentUserApproved={currentUserApproved} onRequest={requestApproval} onAgree={agree} />
+              <ApprovalCardV2 plan={plan} owner={owner} busy={busy} collaborators={collaborators} approvedIds={approvedIds} currentUserApproved={currentUserApproved} onRequest={requestApproval} onAgree={agree} onRule={changeApprovalRule} />
             </div>
 
             <div className="mt-10 grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="min-w-0">
-                <div className="mb-6 flex gap-2 overflow-x-auto border-b border-[#1e2822]/10 pb-4">
-                  {days.map((day) => <button key={day.id} onClick={() => setActiveDayId(day.id)} className={`shrink-0 rounded-full px-4 py-2.5 text-sm font-bold transition ${activeDay?.id === day.id ? "bg-[#194d3a] text-white shadow-sm" : "bg-white/60 text-[#657168] hover:bg-white"}`}>Day {day.day_index + 1}<span className={`ml-2 font-medium ${activeDay?.id === day.id ? "text-white/65" : "text-[#929b95]"}`}>{day.label}</span></button>)}
-                </div>
-                {activeDay ? <div><div className="mb-4 flex items-end justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[.16em] text-[#d15d3e]">Day {activeDay.day_index + 1}</p><h2 className="mt-1 text-2xl font-bold tracking-[-.03em]">{activeDay.label}</h2></div><p className="text-xs font-medium text-[#818b85]">{activeDay.items.length} activities</p></div><div className="space-y-3">{activeDay.items.map((item) => <PlanItemCard key={item.id} item={item} userId={user.id} members={members} votes={votes.filter((vote) => vote.plan_item_id === item.id)} comments={comments.filter((comment) => comment.plan_item_id === item.id)} locked={plan.status === "agreed"} onVote={castVote} onComment={addComment} />)}</div></div> : null}
+                <div className="divide-y divide-[#1e2822]/12">{days.map((day) => <section key={day.id} className="py-9 first:pt-0"><div className="mb-5 flex items-end justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[.16em] text-[#d15d3e]">Day {day.day_index + 1}</p><h2 className="mt-1 text-2xl font-bold tracking-[-.03em]">{day.label}</h2></div><p className="text-xs font-medium text-[#818b85]">{day.items.length} {day.items.length === 1 ? "stop" : "stops"}</p></div><div className="space-y-3">{day.items.map((item) => <UnifiedPlanItemCard key={item.id} item={item} userId={user.id} members={members} votes={votes.filter((vote) => vote.plan_item_id === item.id)} comments={comments.filter((comment) => comment.plan_item_id === item.id)} locked={plan.status === "agreed"} onVote={castVote} onComment={addComment} />)}</div></section>)}</div>
               </div>
-              <div className="space-y-4"><div className="grid grid-cols-2 gap-3"><div className="rounded-[18px] border border-[#1e2822]/8 bg-white/70 p-4"><p className="text-2xl font-bold tracking-[-.04em]">{totalItems}</p><p className="mt-1 text-xs text-[#758078]">Plan items</p></div><div className="rounded-[18px] border border-[#1e2822]/8 bg-white/70 p-4"><p className="text-2xl font-bold tracking-[-.04em]">{openComments}</p><p className="mt-1 text-xs text-[#758078]">Comments</p></div></div><MembersPanel plan={plan} user={user} members={members} owner={owner} onRefresh={() => loadPlan(plan.id)} /></div>
+              <div className="space-y-4"><div className="grid grid-cols-2 gap-3"><div className="rounded-[18px] border border-[#1e2822]/8 bg-white/70 p-4"><p className="text-2xl font-bold tracking-[-.04em]">{totalItems}</p><p className="mt-1 text-xs text-[#758078]">Plan items</p></div><div className="rounded-[18px] border border-[#1e2822]/8 bg-white/70 p-4"><p className="text-2xl font-bold tracking-[-.04em]">{openComments}</p><p className="mt-1 text-xs text-[#758078]">Comments</p></div></div><MembersPanelV2 plan={plan} user={user} members={members} invitations={invitations} owner={owner} onRefresh={() => loadPlan(plan.id)} /></div>
             </div>
           </>}
         </section>
@@ -365,11 +370,37 @@ function ApprovalCard({ plan, owner, busy, collaborators, approvedIds, currentUs
   return owner ? <button disabled={busy} onClick={onRequest} className="flex w-full max-w-sm items-center justify-between rounded-[22px] bg-[#194d3a] p-5 text-left text-white shadow-lg"><span><span className="block text-sm font-bold">Ready for the group?</span><span className="mt-1 block text-xs text-white/60">Request everyone’s final agreement</span></span><ChevronRight className="size-5" /></button> : null;
 }
 
+function ApprovalCardV2({ plan, owner, busy, collaborators, approvedIds, currentUserApproved, onRequest, onAgree, onRule }: { plan: PlanRow; owner: boolean; busy: boolean; collaborators: Member[]; approvedIds: Set<string>; currentUserApproved: boolean; onRequest: () => void; onAgree: () => void; onRule: (rule: PlanRow["approval_rule"]) => void }) {
+  const agreed = collaborators.filter((member) => approvedIds.has(member.user_id)).length;
+  const threshold = plan.approval_rule === "majority" ? Math.max(1, Math.ceil(collaborators.length / 2)) : plan.approval_rule === "owner-decides" ? 1 : collaborators.length;
+  const ruleLabel = plan.approval_rule === "majority" ? "Majority agrees" : plan.approval_rule === "owner-decides" ? "Owner decides" : "Everyone agrees";
+  if (plan.status === "agreed") return <div className="w-full max-w-sm rounded-[22px] bg-[#194d3a] p-5 text-white"><p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.14em] text-[#efbd72]"><CheckCircle2 className="size-4" />Final plan</p><p className="mt-3 text-xl font-bold">Plan agreed</p><p className="mt-1 text-sm text-white/65">{ruleLabel} · Finalized {plan.finalized_at ? new Date(plan.finalized_at).toLocaleDateString() : "today"}</p></div>;
+  if (plan.status === "approval-pending") return <div className="w-full max-w-sm rounded-[22px] border border-[#d69b45]/25 bg-[#fff8e9] p-5"><div className="flex items-center justify-between gap-3"><p className="text-xs font-bold uppercase tracking-[.14em] text-[#9b671c]">Final agreement</p><span className="rounded-full bg-white/75 px-2.5 py-1 text-[10px] font-bold text-[#7b6c55]">{ruleLabel}</span></div>{plan.approval_rule === "owner-decides" ? <p className="mt-3 text-sm leading-6 text-[#6d715f]">The owner makes the final call after reviewing the discussion.</p> : <><div className="mt-3 flex items-end justify-between"><p className="text-2xl font-bold">{agreed} of {threshold}</p><p className="text-xs text-[#7b6c55]">needed to finalize</p></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#e9ddc8]"><div className="h-full rounded-full bg-[#d18b31]" style={{ width: `${threshold ? Math.min(100, (agreed / threshold) * 100) : 100}%` }} /></div></>}{plan.approval_rule === "owner-decides" && owner ? <button disabled={busy} onClick={onAgree} className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#194d3a] px-4 py-3 text-sm font-bold text-white"><Check className="size-4" />Finalize this plan</button> : !owner && !currentUserApproved && plan.approval_rule !== "owner-decides" ? <button disabled={busy} onClick={onAgree} className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[#194d3a] px-4 py-3 text-sm font-bold text-white"><Check className="size-4" />Agree to this plan</button> : <p className="mt-4 text-sm font-semibold text-[#6d715f]">{owner ? "Agreement is open for the group." : plan.approval_rule === "owner-decides" ? "The owner will finalize this plan." : "Your agreement is recorded."}</p>}</div>;
+  return owner ? <div className="w-full max-w-sm rounded-[22px] bg-[#194d3a] p-5 text-white shadow-lg"><p className="text-sm font-bold">Ready to finalize?</p><p className="mt-1 text-xs leading-5 text-white/60">Choose how this group reaches final agreement.</p><select value={plan.approval_rule} onChange={(event) => onRule(event.target.value as PlanRow["approval_rule"])} className="mt-4 w-full rounded-xl border border-white/15 bg-white/10 px-3 py-2.5 text-sm font-semibold text-white outline-none"><option className="text-[#1e2822]" value="unanimous">Everyone agrees</option><option className="text-[#1e2822]" value="majority">Majority agrees</option><option className="text-[#1e2822]" value="owner-decides">Owner decides</option></select><button disabled={busy} onClick={onRequest} className="mt-3 flex w-full items-center justify-between rounded-full bg-[#d96545] px-4 py-3 text-left text-sm font-bold text-white"><span>Request final agreement</span><ChevronRight className="size-4" /></button></div> : null;
+}
+
+function UnifiedPlanItemCard({ item, userId, members, votes, comments, locked, onVote, onComment }: { item: Item; userId: string; members: Member[]; votes: Vote[]; comments: Comment[]; locked: boolean; onVote: (id: string, value: -1 | 1) => void; onComment: (id: string, body: string) => void }) {
+  const [open, setOpen] = useState(false); const [body, setBody] = useState("");
+  const mine = votes.find((vote) => vote.user_id === userId)?.value;
+  const nameFor = (id: string) => members.find((member) => member.user_id === id)?.display_name ?? "PlanMate member";
+  const ups = votes.filter((vote) => vote.value === 1).length; const downs = votes.filter((vote) => vote.value === -1).length;
+  return <article className="overflow-hidden rounded-[20px] border border-[#1e2822]/8 bg-[#fffdf8] shadow-sm"><div className="p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#d15d3e]">{item.start_time?.slice(0, 5) || "Flexible"}</p><h3 className="mt-1 text-lg font-bold">{item.title}</h3></div><span className="rounded-full bg-[#eef1ee] px-2.5 py-1 text-[10px] font-bold uppercase text-[#66736b]">{item.booking_status.replace("-", " ")}</span></div><p className="mt-2 text-sm leading-6 text-[#6d7a72]">{item.description}</p><div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#1e2822]/7 pt-3"><span className="text-xs text-[#7b867f]">{item.location_name}</span><button onClick={() => setOpen(!open)} className="flex items-center gap-2 rounded-full bg-[#edf0ed] px-3 py-2 text-xs font-bold text-[#526159]"><MessageCircle className="size-4" />Discuss {votes.length || comments.length ? `· ${ups}↑ ${downs}↓ ${comments.length} comments` : ""}</button></div></div>{open ? <div className="border-t border-[#1e2822]/8 bg-[#f6f2e9] p-4"><div className="mb-4 flex items-center gap-2"><span className="text-xs font-bold text-[#657168]">Your vote</span><button disabled={locked} onClick={() => onVote(item.id, 1)} className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${mine === 1 ? "bg-[#dcecdf] text-[#245e42]" : "bg-white text-[#617068]"}`}><ThumbsUp className="size-3.5" />{ups}</button><button disabled={locked} onClick={() => onVote(item.id, -1)} className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${mine === -1 ? "bg-[#fde4dc] text-[#a54931]" : "bg-white text-[#617068]"}`}><ThumbsDown className="size-3.5" />{downs}</button></div><div className="space-y-3">{comments.map((comment) => <div key={comment.id} className="rounded-xl bg-white p-3"><p className="text-xs font-bold">{nameFor(comment.user_id)} <span className="ml-1 font-normal text-[#8a948e]">{new Date(comment.created_at).toLocaleDateString()}</span></p><p className="mt-1 text-sm text-[#59675f]">{comment.body}</p></div>)}</div>{!locked ? <form onSubmit={(event) => { event.preventDefault(); onComment(item.id, body); setBody(""); }} className="mt-3 flex gap-2"><input value={body} onChange={(event) => setBody(event.target.value)} maxLength={2000} placeholder="Add a comment…" className="min-w-0 flex-1 rounded-xl border border-[#1e2822]/10 bg-white px-3 py-2 text-sm outline-none" /><button className="grid size-10 place-items-center rounded-xl bg-[#d96545] text-white" aria-label="Send comment"><Send className="size-4" /></button></form> : null}</div> : null}</article>;
+}
+
 function PlanItemCard({ item, userId, members, votes, comments, locked, onVote, onComment }: { item: Item; userId: string; members: Member[]; votes: Vote[]; comments: Comment[]; locked: boolean; onVote: (id: string, value: -1 | 1) => void; onComment: (id: string, body: string) => void }) {
   const [open, setOpen] = useState(false); const [body, setBody] = useState("");
   const mine = votes.find((vote) => vote.user_id === userId)?.value;
   const nameFor = (id: string) => members.find((member) => member.user_id === id)?.display_name ?? "PlanMate member";
   return <article className="overflow-hidden rounded-[22px] border border-[#1e2822]/9 bg-[#fffdf8] shadow-sm"><div className="p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.12em] text-[#d15d3e]">{item.start_time?.slice(0, 5) || "Flexible"}</p><h3 className="mt-1 text-lg font-bold">{item.title}</h3></div><div className="flex gap-1"><button disabled={locked} onClick={() => onVote(item.id, 1)} className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${mine === 1 ? "bg-[#dcecdf] text-[#245e42]" : "bg-[#edf0ed] text-[#617068]"}`}><ThumbsUp className="size-3.5" />{votes.filter((vote) => vote.value === 1).length}</button><button disabled={locked} onClick={() => onVote(item.id, -1)} className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${mine === -1 ? "bg-[#fde4dc] text-[#a54931]" : "bg-[#edf0ed] text-[#617068]"}`}><ThumbsDown className="size-3.5" />{votes.filter((vote) => vote.value === -1).length}</button></div></div><p className="mt-2 text-sm leading-6 text-[#6d7a72]">{item.description}</p><div className="mt-4 flex items-center justify-between border-t border-[#1e2822]/7 pt-3"><span className="text-xs text-[#7b867f]">{item.location_name}</span><button onClick={() => setOpen(!open)} className="flex items-center gap-2 text-xs font-bold text-[#526159]"><MessageCircle className="size-4" />{comments.length} {comments.length === 1 ? "comment" : "comments"}</button></div></div>{open ? <div className="border-t border-[#1e2822]/8 bg-[#f6f2e9] p-4"><div className="space-y-3">{comments.map((comment) => <div key={comment.id} className="rounded-xl bg-white p-3"><p className="text-xs font-bold">{nameFor(comment.user_id)} <span className="ml-1 font-normal text-[#8a948e]">{new Date(comment.created_at).toLocaleDateString()}</span></p><p className="mt-1 text-sm text-[#59675f]">{comment.body}</p></div>)}</div>{!locked ? <form onSubmit={(event) => { event.preventDefault(); onComment(item.id, body); setBody(""); }} className="mt-3 flex gap-2"><input value={body} onChange={(event) => setBody(event.target.value)} maxLength={2000} placeholder="Add a comment…" className="min-w-0 flex-1 rounded-xl border border-[#1e2822]/10 bg-white px-3 py-2 text-sm outline-none" /><button className="grid size-10 place-items-center rounded-xl bg-[#d96545] text-white" aria-label="Send comment"><Send className="size-4" /></button></form> : null}</div> : null}</article>;
+}
+
+function MembersPanelV2({ plan, user, members, invitations, owner, onRefresh }: { plan: PlanRow; user: User; members: Member[]; invitations: Invitation[]; owner: boolean; onRefresh: () => void }) {
+  const supabase = useMemo(() => createClient(), []); const [email, setEmail] = useState(""); const [message, setMessage] = useState<string | null>(null); const [workingId, setWorkingId] = useState<string | null>(null);
+  const pending = invitations.filter((invitation) => invitation.status === "pending");
+  async function sendInvite(inviteEmail: string, id = "new") { setWorkingId(id); setMessage(id === "new" ? "Sending invitation…" : "Resending invitation…"); const { error } = await supabase.functions.invoke("send-plan-invite", { body: { planId: plan.id, email: inviteEmail.trim().toLowerCase() } }); if (error) setMessage(error.message); else { setMessage(id === "new" ? "Invitation email sent." : "Invitation resent with a fresh link."); setEmail(""); onRefresh(); } setWorkingId(null); }
+  async function invite(event: FormEvent) { event.preventDefault(); await sendInvite(email); }
+  async function revoke(invitation: Invitation) { setWorkingId(invitation.id); const { error } = await supabase.from("plan_invitations").update({ status: "revoked" }).eq("id", invitation.id); setMessage(error ? error.message : "Invitation canceled."); setWorkingId(null); if (!error) onRefresh(); }
+  return <aside className="rounded-[22px] border border-[#1e2822]/9 bg-[#fffdf8] p-5"><div className="flex items-center gap-2"><Users className="size-4 text-[#d15d3e]" /><h2 className="font-bold">People</h2></div><div className="mt-4 space-y-3">{members.map((member) => <div key={member.user_id} className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-[#e5ebe5] text-[#315440]"><CircleUserRound className="size-4" /></span><div className="min-w-0 flex-1"><p className="truncate text-sm font-bold">{member.display_name}</p><p className="text-xs capitalize text-[#7d8881]">{member.role} · joined</p></div>{member.user_id === user.id ? <span className="text-[10px] font-bold uppercase text-[#a56a26]">You</span> : null}</div>)}</div>{owner && pending.length ? <div className="mt-5 border-t border-[#1e2822]/8 pt-4"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#718078]">Pending invitations</p><div className="mt-3 space-y-3">{pending.map((invitation) => <div key={invitation.id} className="rounded-xl bg-[#f4f1ea] p-3"><p className="truncate text-sm font-semibold">{invitation.email}</p><p className="mt-0.5 text-[11px] text-[#7d8881]">Expires {new Date(invitation.expires_at).toLocaleDateString()}</p><div className="mt-2 flex gap-3 text-xs font-bold"><button disabled={workingId === invitation.id} onClick={() => sendInvite(invitation.email, invitation.id)} className="text-[#315c44]">Resend</button><button disabled={workingId === invitation.id} onClick={() => revoke(invitation)} className="text-[#a54931]">Cancel</button></div></div>)}</div></div> : null}{owner ? <form onSubmit={invite} className="mt-5 border-t border-[#1e2822]/8 pt-5"><label className="text-xs font-bold uppercase tracking-[.12em] text-[#718078]">Invite by email</label><div className="mt-2 flex gap-2"><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="friend@example.com" className="min-w-0 flex-1 rounded-xl border border-[#1e2822]/10 bg-white px-3 py-2 text-sm outline-none" /><button disabled={workingId === "new"} className="grid size-10 place-items-center rounded-xl bg-[#194d3a] text-white" aria-label="Send invitation"><UserPlus className="size-4" /></button></div>{message ? <p className="mt-2 flex items-start gap-1.5 text-xs leading-5 text-[#657269]"><Clipboard className="mt-0.5 size-3.5 shrink-0" />{message}</p> : null}</form> : null}</aside>;
 }
 
 function MembersPanel({ plan, user, members, owner, onRefresh }: { plan: PlanRow; user: User; members: Member[]; owner: boolean; onRefresh: () => void }) {
@@ -380,3 +411,8 @@ function MembersPanel({ plan, user, members, owner, onRefresh }: { plan: PlanRow
 
 function EmptyWorkspace({ busy, onCreate }: { busy: boolean; onCreate: () => void }) { return <div className="grid min-h-[65vh] place-items-center"><div className="max-w-md text-center"><span className="mx-auto grid size-16 place-items-center rounded-[22px] bg-[#e2ebe4] text-[#194d3a]"><Users className="size-7" /></span><h1 className="mt-6 font-serif text-4xl tracking-[-0.04em]">Make the plan together</h1><p className="mt-3 leading-7 text-[#6c7971]">Create your first collaboration plan, then invite people to vote, comment, and give final agreement.</p><button onClick={onCreate} disabled={busy} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#d96545] px-6 py-3 text-sm font-bold text-white">{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}Create a starter plan</button></div></div>; }
 function FullPageLoader() { return <main className="grid min-h-screen place-items-center bg-[#f4f1ea]"><LoaderCircle className="size-8 animate-spin text-[#194d3a]" /></main>; }
+
+// Keep the legacy cards temporarily available while saved plans transition to the unified UI.
+void ApprovalCard;
+void PlanItemCard;
+void MembersPanel;
