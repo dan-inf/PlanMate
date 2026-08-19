@@ -32,7 +32,7 @@ export function extractPlanningIntent(prompt: string): PlanningIntent {
 
 const questionBank: Record<IntakeField, ClarificationQuestion> = {
   timing: { id: "timing", label: "When should this happen?", options: ["Exact dates", "Month or season", "Flexible"], placeholder: "Dates, month, season, or time window" },
-  location: { id: "location", label: "Where should PlanMate focus?", options: ["One destination", "Open to ideas"], placeholder: "City, region, or destination flexibility" },
+  location: { id: "location", label: "Where should AgreeAway focus?", options: ["One destination", "Open to ideas"], placeholder: "City, region, or destination flexibility" },
   duration: { id: "duration", label: "How much time do you have?", options: ["One evening", "Weekend", "About a week"], placeholder: "Duration or start/end time" },
   travelers: { id: "travelers", label: "Who’s going?", options: ["Solo", "Two adults", "Group of friends", "Family with children"], placeholder: "Adults, children, team size, or group size" },
   childrenAges: { id: "childrenAges", label: "How old are the children?", options: ["Under 5", "Ages 5–12", "Teenagers"], placeholder: "Ages or age ranges" },

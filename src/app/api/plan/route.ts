@@ -39,13 +39,13 @@ export async function POST(request: Request) {
       store: false,
       reasoning: { effort: "low" },
       text: {
-        format: zodTextFormat(generatedPlanSchema, "planmate_plan"),
+        format: zodTextFormat(generatedPlanSchema, "agreeaway_plan"),
         verbosity: "low",
       },
       input: [
         {
           role: "system",
-          content: `You are PlanMate, an expert real-world planning engine. Turn the user's intent into a useful, geographically sensible, structured ${categoryNames[body.category]}.
+          content: `You are AgreeAway, an expert real-world planning engine. Turn the user's intent into a useful, geographically sensible, structured ${categoryNames[body.category]}.
 
 Rules:
 - Return a Plan, not general advice or a chat response.
@@ -73,7 +73,7 @@ Rules:
 
     if (!response.output_parsed) {
       return NextResponse.json(
-        { error: "PlanMate could not structure that plan. Please try again." },
+        { error: "AgreeAway could not structure that plan. Please try again." },
         { status: 422 },
       );
     }
@@ -89,14 +89,14 @@ Rules:
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Tell PlanMate a little more about what you want to plan." },
+        { error: "Tell AgreeAway a little more about what you want to plan." },
         { status: 400 },
       );
     }
 
     console.error("Plan generation failed", error);
     return NextResponse.json(
-      { error: "PlanMate hit a snag while building your plan. Try again in a moment." },
+      { error: "AgreeAway hit a snag while building your plan. Try again in a moment." },
       { status: 500 },
     );
   }

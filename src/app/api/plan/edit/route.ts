@@ -73,11 +73,11 @@ export async function POST(request: Request) {
       model: process.env.OPENAI_MODEL ?? "gpt-5.6-luna",
       store: false,
       reasoning: { effort: "low" },
-      text: { format: zodTextFormat(editedPlanSchema, "planmate_edited_plan"), verbosity: "low" },
+      text: { format: zodTextFormat(editedPlanSchema, "agreeaway_edited_plan"), verbosity: "low" },
       input: [
         {
           role: "system",
-          content: `You are PlanMate's precise itinerary editor. Return the complete updated Plan object.
+          content: `You are AgreeAway's precise itinerary editor. Return the complete updated Plan object.
 
 Rules:
 - Apply exactly the requested edit and preserve every unrelated day, item, constraint, and piece of metadata.
@@ -107,7 +107,7 @@ Rules:
       response = await makeEditRequest();
     }
     if (!response.output_parsed) {
-      return NextResponse.json({ error: "PlanMate could not apply that change." }, { status: 422 });
+      return NextResponse.json({ error: "AgreeAway could not apply that change." }, { status: 422 });
     }
     const enriched = await enrichPlanWithGoogle({
       ...response.output_parsed,
@@ -119,6 +119,6 @@ Rules:
       return NextResponse.json({ error: "That edit needs a little more detail." }, { status: 400 });
     }
     console.error("Plan editing failed", error);
-    return NextResponse.json({ error: "PlanMate could not update the plan. Try again." }, { status: 500 });
+    return NextResponse.json({ error: "AgreeAway could not update the plan. Try again." }, { status: 500 });
   }
 }

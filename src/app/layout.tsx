@@ -4,20 +4,27 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://myplanmate.app"),
+  metadataBase: new URL("https://agreeaway.com"),
+  applicationName: "AgreeAway",
+  alternates: { canonical: "/" },
   title: {
-    default: "PlanMate — Plans that go somewhere",
-    template: "%s | PlanMate",
+    default: "AgreeAway — Plans that go somewhere",
+    template: "%s | AgreeAway",
   },
   description:
-    "Tell PlanMate what you’re trying to do. Get a thoughtful, organized plan you can shape, share, and actually use.",
+    "Turn an idea into a plan you can shape, share, and actually use.",
   openGraph: {
-    title: "PlanMate — Plans that go somewhere",
+    title: "AgreeAway — Plans that go somewhere",
     description:
       "A thoughtful, organized plan built around your dates, budget, people, and priorities.",
-    url: "https://myplanmate.app",
-    siteName: "PlanMate",
+    url: "https://agreeaway.com",
+    siteName: "AgreeAway",
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AgreeAway — Plans that go somewhere",
+    description: "Turn an idea into a plan you can shape, share, and actually use.",
   },
 };
 

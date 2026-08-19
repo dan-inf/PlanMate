@@ -1,6 +1,6 @@
 # Stripe-ready entitlement architecture
 
-PlanMate owns product access in Supabase. A future payment provider reports commercial events; it never becomes the browser-side authority for whether someone may create a Plan.
+AgreeAway owns product access in Supabase. A future payment provider reports commercial events; it never becomes the browser-side authority for whether someone may create a Plan.
 
 ## Current model
 

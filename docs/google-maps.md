@@ -1,6 +1,6 @@
 # Google Maps enrichment
 
-PlanMate uses Places API (New) Text Search and Routes API from server-side code only.
+AgreeAway uses Places API (New) Text Search and Routes API from server-side code only.
 
 ## Place fields and billing
 
@@ -11,7 +11,7 @@ The production field mask is exported as `PLACE_FIELD_MASK` in `src/lib/google-m
 
 Google bills a Text Search request according to the highest-cost field tier requested. The current mask therefore triggers the Text Search Enterprise SKU. Do not add `*`, current opening hours, atmosphere fields, photos, reviews, or accessibility claims without a product and cost review.
 
-Regular opening hours describe the normal schedule; they do not prove that a place is currently open or available. PlanMate labels matched records **Google verified**, never “live availability.”
+Regular opening hours describe the normal schedule; they do not prove that a place is currently open or available. AgreeAway labels matched records **Google verified**, never “live availability.”
 
 ## Matching and fallbacks
 

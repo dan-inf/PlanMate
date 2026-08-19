@@ -183,7 +183,7 @@ returns jsonb language sql security definer set search_path = '' stable as $$
     'location', p.primary_location,
     'startDate', p.start_date,
     'endDate', p.end_date,
-    'inviterName', coalesce(pr.display_name, 'A PlanMate organizer'),
+    'inviterName', coalesce(pr.display_name, 'An AgreeAway organizer'),
     'available', i.status = 'pending' and i.expires_at > now()
   )
   from public.plan_invitations i

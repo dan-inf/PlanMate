@@ -75,17 +75,17 @@ Deno.serve(async (request) => {
     return json({ error: "Invitation email delivery is not configured" }, 503);
   }
 
-  const siteUrl = Deno.env.get("PLANMATE_SITE_URL") ?? "https://myplanmate.app";
+  const siteUrl = (Deno.env.get("AGREEAWAY_SITE_URL") ?? "https://agreeaway.com").replace(/\/$/, "");
   const inviteUrl = `${siteUrl}/collaborate?invite=${invitation.token}`;
   const safeTitle = escapeHtml(plan.title);
   const emailResponse = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      from: "PlanMate <invites@myplanmate.app>",
+      from: Deno.env.get("RESEND_FROM") ?? "AgreeAway <onboarding@resend.dev>",
       to: [email],
       subject: `You're invited to help plan ${plan.title}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1e2822"><h1 style="color:#194d3a">Make the plan together</h1><p>You've been invited to collaborate on <strong>${safeTitle}</strong> in PlanMate.</p><p>You can vote on ideas, add comments, and give final agreement when the group is ready.</p><p style="margin:32px 0"><a href="${inviteUrl}" style="background:#d96545;color:white;text-decoration:none;padding:14px 22px;border-radius:999px;font-weight:700">Join the plan</a></p><p style="font-size:12px;color:#718078">This invitation expires in 14 days.</p></div>`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#1e2822"><h1 style="color:#194d3a">You've been invited to help plan</h1><p><strong>${safeTitle}</strong> is waiting for your input in AgreeAway.</p><p>View the itinerary, give input, comment, and agree when the details feel right.</p><p style="margin:32px 0"><a href="${inviteUrl}" style="background:#d96545;color:white;text-decoration:none;padding:14px 22px;border-radius:999px;font-weight:700">Join this plan</a></p><p style="font-size:12px;color:#718078">This AgreeAway invitation expires in 14 days.</p></div>`,
     }),
   });
 

@@ -35,6 +35,7 @@ import { samplePlan } from "@/lib/sample-plan";
 import { createClient } from "@/lib/supabase/client";
 import {
   pendingPlanStorageKey,
+  readPendingGeneratedPlan,
   persistGeneratedPlan,
   type PendingGeneratedPlan,
 } from "@/lib/supabase/save-generated-plan";
@@ -107,7 +108,7 @@ function formatMoney(value: number, currency = "USD") {
   }).format(value);
 }
 
-export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean }) {
+export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean }) {
   const router = useRouter();
   const [category, setCategory] = useState<PlanCategory>("group-trip");
   const [prompt, setPrompt] = useState("");
@@ -129,7 +130,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
 
   useEffect(() => {
     if (!draftMode) return;
-    const stored = window.sessionStorage.getItem(pendingPlanStorageKey);
+    const stored = readPendingGeneratedPlan();
     if (!stored) {
       router.replace("/");
       return;
@@ -179,7 +180,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       const data = (await response.json()) as { plan?: Plan; error?: string };
 
       if (!response.ok || !data.plan) {
-        throw new Error(data.error ?? "PlanMate could not build that plan.");
+        throw new Error(data.error ?? "AgreeAway could not build that plan.");
       }
 
       data.plan.planningAssumptions = assumptions;
@@ -192,7 +193,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : "PlanMate could not build that plan.",
+          : "AgreeAway could not build that plan.",
       );
     } finally {
       setLoading(false);
@@ -216,13 +217,13 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       try {
         const response = await fetch("/api/plan/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operation: "context", plan, instruction: details }) });
         const data = (await response.json()) as { plan?: Plan; error?: string };
-        if (!response.ok || !data.plan) throw new Error(data.error ?? "PlanMate could not apply those details.");
+        if (!response.ok || !data.plan) throw new Error(data.error ?? "AgreeAway could not apply those details.");
         data.plan.planningAssumptions = assumptions;
         setUndoPlan(plan); setPlan(data.plan);
         const updatedPrompt = `${prompt}\n\nAdditional planning context: ${details}`;
         setPrompt(updatedPrompt);
         window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify({ plan: data.plan, category, prompt: updatedPrompt, intent: extractPlanningIntent(updatedPrompt), assumptions } satisfies PendingGeneratedPlan));
-      } catch (caughtError) { setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not apply those details."); }
+      } catch (caughtError) { setError(caughtError instanceof Error ? caughtError.message : "AgreeAway could not apply those details."); }
       finally { setLoading(false); }
       return;
     }
@@ -233,7 +234,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     if (!plan) return;
     setSaving(true);
     setError(null);
-    const storedPending = window.sessionStorage.getItem(pendingPlanStorageKey);
+    const storedPending = readPendingGeneratedPlan();
     const parsedPending = storedPending ? JSON.parse(storedPending) as PendingGeneratedPlan : null;
     const pending: PendingGeneratedPlan = {
       plan,
@@ -276,7 +277,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       body: JSON.stringify(payload),
     });
     const data = (await response.json()) as { plan?: Plan; alternatives?: PlanItem[]; error?: string };
-    if (!response.ok) throw new Error(data.error ?? "PlanMate could not update the plan.");
+    if (!response.ok) throw new Error(data.error ?? "AgreeAway could not update the plan.");
     return data;
   }
 
@@ -295,7 +296,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
         closeEditor();
       }
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "PlanMate could not update the plan.";
+      const message = caughtError instanceof Error ? caughtError.message : "AgreeAway could not update the plan.";
       setError(message); setEditError(message);
     } finally { setEditing(false); }
   }
@@ -316,7 +317,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
         setWholePlanInstruction("");
       }
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not update the plan.");
+      setError(caughtError instanceof Error ? caughtError.message : "AgreeAway could not update the plan.");
     } finally {
       setEditing(false);
     }
@@ -330,7 +331,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       if (data.plan) commitDraft(data.plan);
       closeEditor();
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "PlanMate could not replace that stop.";
+      const message = caughtError instanceof Error ? caughtError.message : "AgreeAway could not replace that stop.";
       setError(message); setEditError(message);
     } finally { setEditing(false); }
   }
@@ -342,7 +343,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       const data = await requestEdit({ operation: "remove", plan, dayIndex, itemId: item.id, instruction: `Remove ${item.title} and reflow the remaining day.` });
       if (data.plan) commitDraft(data.plan);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "PlanMate could not remove that stop.");
+      setError(caughtError instanceof Error ? caughtError.message : "AgreeAway could not remove that stop.");
     } finally { setEditing(false); }
   }
 
@@ -375,11 +376,11 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
     <main className="min-h-screen overflow-hidden bg-[#f6f3ed] text-[#1e2822]">
       <header className={draftMode ? "hidden" : "relative z-20 border-b border-[#1e2822]/10 bg-[#f6f3ed]/90 backdrop-blur-xl"}>
         <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
-          <a href="#top" className="flex items-center gap-3" aria-label="PlanMate home">
+          <a href="#top" className="flex items-center gap-3" aria-label="AgreeAway home">
             <span className="grid size-10 place-items-center rounded-[14px] bg-[#194d3a] text-white shadow-[0_8px_30px_rgba(25,77,58,0.2)]">
               <Sparkles className="size-5" strokeWidth={1.8} />
             </span>
-            <span className="text-[21px] font-semibold tracking-[-0.04em]">PlanMate</span>
+            <span className="text-[21px] font-semibold tracking-[-0.04em]">AgreeAway</span>
           </a>
 
           <nav className="hidden items-center gap-8 text-sm font-medium text-[#526057] md:flex">
@@ -411,7 +412,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
               What are you planning?
             </h1>
             <p className="mt-7 max-w-xl text-lg leading-8 text-[#627067] sm:text-xl">
-              Plan anything with AI, then invite the people involved to vote, comment, and agree on the final plan together.
+              Turn an idea into a plan you can shape, share, and actually use.
             </p>
 
             <div id="how-it-works" className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-[#667269]">
@@ -511,7 +512,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
             <div>
               <div className="mb-4 flex items-center gap-3">
                 <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#d15d3e]">
-                  {plan ? "Your first draft" : "A PlanMate plan"}
+                  {plan ? "Your first draft" : "An AgreeAway plan"}
                 </span>
                 {!plan ? <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#607067]">Example</span> : null}
               </div>
@@ -533,12 +534,12 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
           </div>
 
           {plan ? (
-            <section className="mb-7 rounded-[24px] border border-[#194d3a]/15 bg-[#eef3ed] p-4 shadow-[0_16px_45px_rgba(35,48,40,0.08)] sm:p-5" aria-labelledby="ask-planmate-heading">
+            <section className="mb-7 rounded-[24px] border border-[#194d3a]/15 bg-[#eef3ed] p-4 shadow-[0_16px_45px_rgba(35,48,40,0.08)] sm:p-5" aria-labelledby="ask-agreeaway-heading">
               <div className="flex items-start gap-3">
                 <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl bg-[#194d3a] text-[#f1c47b]"><Sparkles className="size-4" /></span>
                 <div>
-                  <h3 id="ask-planmate-heading" className="font-bold text-[#25362d]">Ask PlanMate to change the plan</h3>
-                  <p className="mt-1 text-sm leading-6 text-[#65736b]">Make a broad change and PlanMate will preserve what still works.</p>
+                  <h3 id="ask-agreeaway-heading" className="font-bold text-[#25362d]">Ask AgreeAway to change the plan</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#65736b]">Make a broad change and AgreeAway will preserve what still works.</p>
                 </div>
               </div>
               <form onSubmit={submitWholePlanEdit} className="mt-4 flex flex-col gap-2 rounded-2xl border border-[#1e2822]/10 bg-white p-2 shadow-sm sm:flex-row sm:items-end">
@@ -661,12 +662,12 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
       {editor ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#17251e]/45 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label={editor.kind === "alternatives" ? "Explore alternatives" : "Add a plan stop"}>
         <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-[#fffdf8] shadow-2xl sm:rounded-[28px]">
           <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1e2822]/8 bg-[#fffdf8]/95 px-5 py-4 backdrop-blur sm:px-6">
-            <div><p className="text-xs font-bold uppercase tracking-[.14em] text-[#d15d3e]">Ask PlanMate</p><h3 className="mt-1 text-xl font-bold">{editor.kind === "alternatives" ? `Explore alternatives to ${editor.item.title}` : "What should we add here?"}</h3></div>
+            <div><p className="text-xs font-bold uppercase tracking-[.14em] text-[#d15d3e]">Ask AgreeAway</p><h3 className="mt-1 text-xl font-bold">{editor.kind === "alternatives" ? `Explore alternatives to ${editor.item.title}` : "What should we add here?"}</h3></div>
             <button type="button" onClick={closeEditor} className="grid size-10 place-items-center rounded-full bg-[#f0eee8]" aria-label="Close"><X className="size-4" /></button>
           </div>
           <div className="p-5 sm:p-6">
             {editor.kind === "alternatives" ? <div className="mb-5 rounded-2xl border border-[#194d3a]/12 bg-[#eef3ed] p-4"><p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#587166]">Current choice</p><p className="mt-1 font-bold">{editor.item.title}</p><p className="mt-1 text-sm text-[#6d7a72]">{editor.item.location}</p></div> : null}
-            <p className="text-sm leading-6 text-[#65736b]">{editor.kind === "alternatives" ? "Tell us what should be different. We’ll keep the rest of your plan in context." : "Describe the stop naturally. PlanMate will insert it and adjust the day’s timing and flow."}</p>
+            <p className="text-sm leading-6 text-[#65736b]">{editor.kind === "alternatives" ? "Tell us what should be different. We’ll keep the rest of your plan in context." : "Describe the stop naturally. AgreeAway will insert it and adjust the day’s timing and flow."}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {(editor.kind === "alternatives" ? ["More romantic", "Less expensive", "Closer to the next stop", "More casual"] : ["A drink spot before dinner", "A coffee stop", "Something outdoors", "Add some downtime"]).map((suggestion) => <button key={suggestion} type="button" onClick={() => setEditInstruction(suggestion)} className="rounded-full border border-[#1e2822]/10 bg-[#f6f3ed] px-3 py-2 text-xs font-semibold text-[#526159]">{suggestion}</button>)}
             </div>
@@ -686,7 +687,7 @@ export function PlanMateExperience({ draftMode = false }: { draftMode?: boolean 
         <div className="mx-auto flex max-w-[1280px] flex-col justify-between gap-6 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-xl bg-white/10 text-[#f1c47b]"><Sparkles className="size-4" /></span>
-            <span className="font-semibold tracking-[-0.03em]">PlanMate</span>
+            <span className="font-semibold tracking-[-0.03em]">AgreeAway</span>
           </div>
           <p className="text-sm text-white/55">The plan is the product.</p>
         </div>

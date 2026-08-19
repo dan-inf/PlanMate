@@ -1,6 +1,6 @@
-# PlanMate
+# AgreeAway
 
-PlanMate turns natural-language intent into a structured, persistent real-world plan. The Plan—not a chat transcript—is the product.
+AgreeAway turns natural-language intent into a structured, persistent real-world plan. The Plan—not a chat transcript—is the product.
 
 ## Current product state
 
@@ -14,7 +14,7 @@ PlanMate turns natural-language intent into a structured, persistent real-world 
 - Owner invitations, pending/resend/cancel states, item voting, and comments
 - Final agreement using unanimous, majority, or owner-decides rules
 - Owner- and member-scoped Row Level Security on exposed tables
-- Production deployment at [myplanmate.app](https://myplanmate.app)
+- Canonical production domain: [agreeaway.com](https://agreeaway.com) (cutover requires the owner-console steps in `docs/agreeaway-cutover.md`)
 
 Not yet shipped: progressive intake questions, persistent-plan AI editing, decision summaries, public sharing/PDF, full budget tools, and mobile execution mode.
 
