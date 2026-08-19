@@ -49,6 +49,7 @@ type PlanRow = {
   budget_per_person: number | null;
   currency: string;
   edit_version: number;
+  updated_at: string;
 };
 type Member = { plan_id: string; user_id: string; role: "owner" | "editor" | "collaborator"; display_name: string };
 type Item = { id: string; plan_id: string; day_id: string; item_type: Plan["days"][number]["items"][number]["type"]; title: string; description: string; location_name: string; start_time: string | null; sort_order: number; estimated_cost_per_person: number | null; travel_minutes: number | null; travel_mode: "walk" | "drive" | null; route_distance_meters: number | null; booking_status: "idea" | "selected" | "needs-booking" | "booked" | "cancelled"; verification_status: string; booking_url: string | null; google_maps_url: string | null; website_url: string | null; place_id: string | null; latitude: number | null; longitude: number | null; business_status: string | null; rating: number | null; user_rating_count: number | null; price_level: string | null; regular_opening_hours: string[] | null; match_reason: string | null };
@@ -86,6 +87,8 @@ export function CollaborationWorkspace() {
   const [proposedSummary, setProposedSummary] = useState<string[]>([]);
   const [editBusy, setEditBusy] = useState(false);
   const [latestEditId, setLatestEditId] = useState<string | null>(null);
+  const [planRoles, setPlanRoles] = useState<Record<string, Member["role"]>>({});
+  const [creationBalance, setCreationBalance] = useState<number | null>(null);
   const handledEntryAction = useRef(false);
 
   const loadPlan = useCallback(async (planId: string) => {
@@ -128,16 +131,20 @@ export function CollaborationWorkspace() {
   }, [supabase]);
 
   const loadPlans = useCallback(async (preferredPlanId?: string) => {
-    const { data, error: queryError } = await supabase
-      .from("plans")
-      .select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule,participant_count,budget_per_person,currency,edit_version")
-      .order("updated_at", { ascending: false });
+    const [plansResult, rolesResult, entitlementResult] = await Promise.all([
+      supabase.from("plans").select("id,owner_id,title,description,primary_location,status,approval_version,finalized_at,approval_rule,participant_count,budget_per_person,currency,edit_version,updated_at").order("updated_at", { ascending: false }),
+      supabase.from("plan_members").select("plan_id,user_id,role"),
+      supabase.rpc("get_creation_entitlement"),
+    ]);
+    const { data, error: queryError } = plansResult;
     if (queryError) setError(queryError.message);
     const nextPlans = (data ?? []) as PlanRow[];
+    setPlanRoles(Object.fromEntries((rolesResult.data ?? []).map((membership) => [membership.plan_id, membership.role])));
+    setCreationBalance(Number(entitlementResult.data?.[0]?.balance ?? 0));
     setPlans(nextPlans);
     const preferredPlan = nextPlans.find((candidate) => candidate.id === preferredPlanId);
     if (preferredPlan) await loadPlan(preferredPlan.id);
-    else if (nextPlans.length && !plan) await loadPlan(nextPlans[0].id);
+    else if (preferredPlanId && nextPlans.length && !plan) await loadPlan(nextPlans[0].id);
   }, [loadPlan, plan, supabase]);
 
   useEffect(() => {
@@ -443,6 +450,7 @@ export function CollaborationWorkspace() {
   const currentUserApproved = approvedIds.has(user.id);
   const totalItems = days.reduce((total, day) => total + day.items.length, 0);
   const openComments = comments.length;
+  void createDemoPlan;
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-[#1e2822]">
@@ -455,8 +463,9 @@ export function CollaborationWorkspace() {
 
       <div className="mx-auto grid max-w-[1440px] lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="border-b border-[#1e2822]/10 bg-[#eee9df] p-5 lg:min-h-[calc(100vh-80px)] lg:border-b-0 lg:border-r lg:p-6">
-          <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#758078]">Your plans</p><button onClick={createDemoPlan} disabled={busy} className="grid size-9 place-items-center rounded-full bg-[#194d3a] text-white" aria-label="Create collaboration plan"><Plus className="size-4" /></button></div>
+          <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#758078]">Plans</p><Link href="/" className="grid size-9 place-items-center rounded-full bg-[#194d3a] text-white" aria-label="Create a plan"><Plus className="size-4" /></Link></div>
           <div className="mt-4 flex gap-2 overflow-x-auto lg:flex-col">
+            <button onClick={() => setPlan(null)} className={`min-w-56 rounded-2xl border p-4 text-left lg:min-w-0 ${!plan ? "border-[#194d3a] bg-white shadow-sm" : "border-transparent hover:bg-white/60"}`}><span className="block text-sm font-bold">All plans</span><span className="mt-1 block text-xs text-[#758078]">My plans and shared plans</span></button>
             {plans.map((candidate) => <button key={candidate.id} onClick={() => loadPlan(candidate.id)} className={`min-w-56 rounded-2xl border p-4 text-left lg:min-w-0 ${plan?.id === candidate.id ? "border-[#194d3a] bg-white shadow-sm" : "border-transparent hover:bg-white/60"}`}><span className="block truncate text-sm font-bold">{candidate.title}</span><span className="mt-1 flex items-center gap-1.5 text-xs text-[#758078]"><span className={`size-2 rounded-full ${candidate.status === "agreed" ? "bg-[#2c7a55]" : "bg-[#d96545]"}`} />{statusCopy[candidate.status]}</span></button>)}
           </div>
         </aside>
@@ -464,7 +473,7 @@ export function CollaborationWorkspace() {
         <section className="min-w-0 p-5 sm:p-8 lg:p-10 xl:p-12">
           {notice ? <div className="mb-6 flex items-center justify-between rounded-2xl bg-[#e4efe7] px-4 py-3 text-sm font-semibold text-[#245f43]"><span className="flex items-center gap-2"><CheckCircle2 className="size-4" />{notice}</span><button onClick={() => setNotice(null)}>×</button></div> : null}
           {error ? <div role="alert" className="mb-6 rounded-2xl bg-[#fff0eb] px-4 py-3 text-sm text-[#a4452f]">{error}</div> : null}
-          {!plan ? <EmptyWorkspace busy={busy} onCreate={createDemoPlan} /> : <>
+          {!plan ? <PlanDashboard plans={plans} user={user} roles={planRoles} creationBalance={creationBalance} onOpen={loadPlan} /> : <>
             <div className="flex flex-col gap-7 xl:flex-row xl:items-start xl:justify-between">
               <div><Link href="/" className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-[#657168] transition hover:text-[#194d3a]"><ArrowLeft className="size-4" />Back to planner</Link><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-[.08em] ${plan.status === "agreed" ? "bg-[#dcecdf] text-[#246143]" : plan.status === "approval-pending" ? "bg-[#fff0d8] text-[#8d5b15]" : "bg-[#e8ece8] text-[#55635b]"}`}>{statusCopy[plan.status]}</span>{plan.status === "agreed" ? <LockKeyhole className="size-4 text-[#2c6b4c]" /> : null}</div><h1 className="mt-5 max-w-3xl font-serif text-4xl leading-[1.05] tracking-[-0.045em] sm:text-5xl">{plan.title}</h1><p className="mt-3 max-w-2xl leading-7 text-[#68756d]">{plan.description}</p><div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[#68756d]"><span className="flex items-center gap-2"><MapPin className="size-4 text-[#d15d3e]" />{plan.primary_location}</span><span className="flex items-center gap-2"><CalendarDays className="size-4 text-[#d15d3e]" />{days.length} {days.length === 1 ? "day" : "days"}</span><span className="flex items-center gap-2"><Users className="size-4 text-[#d15d3e]" />{members.length} {members.length === 1 ? "member" : "members"}</span></div></div>
               <ApprovalCard plan={plan} owner={owner} busy={busy} collaborators={collaborators} approvedIds={approvedIds} currentUserApproved={currentUserApproved} onRequest={requestApproval} onAgree={agree} onRule={changeApprovalRule} />
@@ -487,6 +496,7 @@ export function CollaborationWorkspace() {
 
 function AuthScreen({ supabase }: { supabase: ReturnType<typeof createClient> }) {
   const [savingPlan] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("save") === "generated");
+  const [invitationToken] = useState(() => typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("invite") : null);
   const [mode, setMode] = useState<"signin" | "signup">(() => savingPlan ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -502,7 +512,7 @@ function AuthScreen({ supabase }: { supabase: ReturnType<typeof createClient> })
           password,
           options: {
             data: { display_name: name },
-            emailRedirectTo: `${window.location.origin}/collaborate${savingPlan ? "?save=generated" : ""}`,
+            emailRedirectTo: `${window.location.origin}/collaborate${savingPlan ? "?save=generated" : invitationToken ? `?invite=${invitationToken}` : ""}`,
           },
         });
     if (result.error) setMessage(result.error.message);
@@ -562,9 +572,17 @@ function LegacyMembersPanel({ plan, user, members, owner, onRefresh }: { plan: P
 }
 
 function EmptyWorkspace({ busy, onCreate }: { busy: boolean; onCreate: () => void }) { return <div className="grid min-h-[65vh] place-items-center"><div className="max-w-md text-center"><span className="mx-auto grid size-16 place-items-center rounded-[22px] bg-[#e2ebe4] text-[#194d3a]"><Users className="size-7" /></span><h1 className="mt-6 font-serif text-4xl tracking-[-0.04em]">Make the plan together</h1><p className="mt-3 leading-7 text-[#6c7971]">Create your first collaboration plan, then invite people to vote, comment, and give final agreement.</p><button onClick={onCreate} disabled={busy} className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#d96545] px-6 py-3 text-sm font-bold text-white">{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}Create a starter plan</button></div></div>; }
+function PlanDashboard({ plans, user, roles, creationBalance, onOpen }: { plans: PlanRow[]; user: User; roles: Record<string, Member["role"]>; creationBalance: number | null; onOpen: (id: string) => void }) {
+  const owned = plans.filter((candidate) => candidate.owner_id === user.id);
+  const shared = plans.filter((candidate) => candidate.owner_id !== user.id);
+  const displayName = String(user.user_metadata?.display_name || user.email?.split("@")[0] || "there");
+  const section = (title: string, entries: PlanRow[], empty: string) => <section className="mt-10"><h2 className="text-xs font-bold uppercase tracking-[.16em] text-[#758078]">{title}</h2>{entries.length ? <div className="mt-4 grid gap-4 md:grid-cols-2">{entries.map((candidate) => <button key={candidate.id} onClick={() => onOpen(candidate.id)} className="rounded-[22px] border border-[#1e2822]/9 bg-[#fffdf8] p-5 text-left transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-start justify-between gap-3"><div><h3 className="text-lg font-bold">{candidate.title}</h3><p className="mt-1 text-sm text-[#6d7972]">{candidate.primary_location || "Location to be decided"}</p></div><ChevronRight className="mt-1 size-4 text-[#88918c]" /></div><div className="mt-5 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-[#e8eee9] px-2.5 py-1 font-semibold capitalize">{candidate.owner_id === user.id ? "Owned by you" : roles[candidate.id] || "collaborator"}</span><span className="rounded-full bg-[#f5e9dc] px-2.5 py-1 font-semibold">{statusCopy[candidate.status]}</span></div><p className="mt-4 text-xs text-[#89928d]">Updated {new Date(candidate.updated_at).toLocaleDateString()}</p></button>)}</div> : <div className="mt-4 rounded-[22px] border border-dashed border-[#1e2822]/15 bg-white/45 p-6 text-sm text-[#718078]">{empty}</div>}</section>;
+  return <div className="mx-auto max-w-5xl"><div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-sm font-semibold text-[#d15d3e]">Welcome, {displayName}</p><h1 className="mt-2 font-serif text-4xl tracking-[-.045em] sm:text-5xl">Your PlanMate plans</h1><p className="mt-3 text-sm text-[#6d7972]">{creationBalance === null ? "Creation status loading…" : creationBalance > 0 ? `${creationBalance} free Plan creation available.` : "Free Plan creation used. Beta creation access remains open."}</p></div><Link href="/" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#d96545] px-6 text-sm font-bold text-white"><Plus className="size-4" />{creationBalance && creationBalance > 0 ? "Create your free Plan" : "Create a plan"}</Link></div>{section("My plans", owned, "Ready to plan something? Create your first Plan free.")}{section("Shared with me", shared, "Plans you join will appear here.")}</div>;
+}
 function FullPageLoader() { return <main className="grid min-h-screen place-items-center bg-[#f4f1ea]"><LoaderCircle className="size-8 animate-spin text-[#194d3a]" /></main>; }
 
 // Keep the legacy cards temporarily available while saved plans transition to the unified UI.
 void LegacyApprovalCard;
 void LegacyPlanItemCard;
 void LegacyMembersPanel;
+void EmptyWorkspace;
