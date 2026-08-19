@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyVerifiedPlace, enrichPlanWithGoogle, scorePlaceMatch, selectStrongPlace } from "../src/lib/google-maps.ts";
+import { applyVerifiedPlace, enrichPlanWithGoogle, keepSingleAccommodationBase, scorePlaceMatch, selectStrongPlace } from "../src/lib/google-maps.ts";
 import type { Plan, PlanItem } from "../src/lib/plan-schema.ts";
 import { replacePlanItem } from "../src/lib/plan-edits.ts";
 
@@ -77,4 +77,13 @@ test("replacement preserves unrelated Plan state and stable identity", () => {
   assert.equal(updated.days[0].items[0].time, "19:00");
   assert.deepEqual(updated.days[1], source.days[1]);
   assert.equal(source.days[0].items[0].title, "Italian dinner");
+});
+
+test("single-base plan keeps the same verified accommodation", () => {
+  const source = plan(); source.summary = "A centrally located single lodging base with minimal driving";
+  const first = item({ id: "hotel-1", type: "accommodation", title: "Fairmont", description: "Check in", verification: "google-verified", placeId: "fairmont", location: "101 Red River St" });
+  const second = item({ id: "hotel-2", type: "accommodation", title: "Second overnight", description: "Second overnight at the same lodging", verification: "google-verified", placeId: "wrong", location: "Far away" });
+  source.days[0].items = [first]; source.days.push({ label: "Saturday", date: "", items: [second] });
+  keepSingleAccommodationBase(source);
+  assert.equal(second.placeId, "fairmont"); assert.equal(second.id, "hotel-2"); assert.equal(second.description, "Second overnight at the same lodging");
 });

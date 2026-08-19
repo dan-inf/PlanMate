@@ -154,7 +154,8 @@ export function chooseTravelMode(origin: PlanItem, destination: PlanItem): "walk
 
 async function routeLeg(origin: PlanItem, destination: PlanItem, apiKey: string): Promise<RouteLeg | null> {
   if (origin.latitude == null || origin.longitude == null || destination.latitude == null || destination.longitude == null) return null;
-  const mode = chooseTravelMode(origin, destination);
+  const preferredMode = chooseTravelMode(origin, destination);
+  const requestRoute = async (mode: "walk" | "drive") => {
   const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "routes.duration,routes.distanceMeters" },
@@ -169,7 +170,25 @@ async function routeLeg(origin: PlanItem, destination: PlanItem, apiKey: string)
   if (!response.ok) throw new Error(`Routes API returned ${response.status}`);
   const route = ((await response.json()) as { routes?: Array<{ duration?: string; distanceMeters?: number }> }).routes?.[0];
   const minutes = durationMinutes(route?.duration);
-  return minutes === null || route?.distanceMeters == null ? null : { minutes, distanceMeters: route.distanceMeters, mode };
+    return minutes === null || route?.distanceMeters == null ? null : { minutes, distanceMeters: route.distanceMeters, mode };
+  };
+  const preferred = await requestRoute(preferredMode);
+  if (preferred?.mode === "walk" && preferred.minutes > 30) return await requestRoute("drive");
+  return preferred;
+}
+
+export function keepSingleAccommodationBase(plan: Plan) {
+  if (!/(single|same|central|downtown).{0,20}(base|stay|hotel|lodging)|minimal driving|downtown-based/i.test(`${plan.summary} ${plan.considerations.join(" ")}`)) return plan;
+  const stays = plan.days.flatMap((day) => day.items).filter((item) => item.type === "accommodation");
+  const base = stays.find((item) => ["google-verified", "verified"].includes(item.verification) && item.placeId);
+  if (!base) return plan;
+  for (const stay of stays) {
+    if (stay === base || !/(overnight|second night|same lodging|check.?out|depart)/i.test(`${stay.title} ${stay.description}`)) continue;
+    const description = stay.description;
+    const time = stay.time;
+    Object.assign(stay, structuredClone(base), { id: stay.id, description, time });
+  }
+  return plan;
 }
 
 export async function enrichPlanWithGoogle(plan: Plan) {
@@ -188,6 +207,7 @@ export async function enrichPlanWithGoogle(plan: Plan) {
         applyVerifiedPlace(item, match.place, match.score); placesVerified += 1;
       } catch (error) { console.warn("Places enrichment unavailable", error instanceof Error ? error.message : "unknown error"); }
     }));
+    keepSingleAccommodationBase(enriched);
   }
   if (routesKey) for (const day of enriched.days) for (let index = 1; index < day.items.length; index += 1) {
     const current = day.items[index];
