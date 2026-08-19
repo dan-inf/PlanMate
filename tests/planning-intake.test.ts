@@ -21,6 +21,11 @@ test("a fully specified Spain prompt takes the fast path", () => {
   assert.deepEqual(clarificationQuestions("personal-trip", prompt), []);
 });
 
+test("hyphenated durations do not trigger a redundant question", () => {
+  const prompt = "A three-day team offsite in Seattle in October for 12 team members with a $15,000 budget, strategy and team building.";
+  assert.deepEqual(clarificationQuestions("team-offsite", prompt), []);
+});
+
 test("family trips ask for missing child ages", () => {
   const questions = clarificationQuestions("personal-trip", "Our family with kids is spending a week in Spain in June with a $5,000 budget for food and history.");
   assert.ok(questions.some((question) => question.id === "childrenAges"));

@@ -10,7 +10,7 @@ export type PlanningIntent = {
 };
 
 const monthOrSeason = /\b(january|february|march|april|may|june|july|august|september|october|november|december|spring|summer|fall|autumn|winter|flexible dates?|this (?:friday|saturday|sunday|weekend)|\d{4}-\d{2}-\d{2}|\b\d{1,2}\/\d{1,2})\b/i;
-const durationPattern = /\b(?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:day|days|night|nights|week|weeks)|\bweekend\b/i;
+const durationPattern = /\b(?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*[- ]?\s*(?:day|days|night|nights|week|weeks)|\bweekend\b/i;
 const travelerPattern = /\b(?:solo|couple|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:adult|adults|people|person|friends|travelers|guests|team members?)\b/i;
 const familyPattern = /\b(kids?|children|family|toddler|teenagers?|teens?)\b/i;
 const agesPattern = /\b(?:ages?|aged)\s*[:\-]?\s*\d{1,2}(?:\s*(?:,|and|&)\s*\d{1,2})*/i;

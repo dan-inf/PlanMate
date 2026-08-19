@@ -27,6 +27,24 @@ test("weak or geographically implausible match remains suggested", () => {
   assert.equal(source.days[0].items[0].verification, "suggested");
 });
 
+test("a bar with only a secondary restaurant type is rejected for a meal", () => {
+  const meal = item({ title: "Group dinner", description: "A full dinner at a moderately priced restaurant." });
+  const source = plan(meal);
+  source.location = "Austin, Texas";
+  const place = {
+    id: "cocktail-bar",
+    displayName: { text: "Group Therapy" },
+    formattedAddress: "400 Lavaca St, Austin, TX, USA",
+    businessStatus: "OPERATIONAL",
+    primaryType: "bar",
+    types: ["bar", "restaurant"],
+    rating: 4.6,
+    userRatingCount: 900,
+  };
+
+  assert.equal(selectStrongPlace([place], meal, source), null);
+});
+
 test("generic neighborhood activity does not become an arbitrary landmark", () => {
   const activity = item({ type: "activity", title: "Relaxed SoHo stroll", description: "Walk quieter streets and browse storefronts" });
   const source = plan(activity);

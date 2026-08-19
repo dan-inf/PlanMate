@@ -52,7 +52,13 @@ export function scorePlaceMatch(place: GooglePlace, item: PlanItem, plan: Plan) 
   const geographyScore = overlap(tokens(`${item.location} ${plan.location}`), tokens(place.formattedAddress));
   const actualTypes = new Set([place.primaryType, ...(place.types ?? [])].filter(Boolean) as string[]);
   const typeScore = [...expectedGoogleTypes(item.type)].some((type) => actualTypes.has(type)) ? 1 : 0;
-  const score = (geographyScore * 0.5) + (typeScore * 0.3) + (titleScore * 0.2);
+  const ratingConfidence = place.rating && place.userRatingCount
+    ? Math.min(1, Math.max(0, (place.rating - 3.5) / 1.2)) * Math.min(1, Math.log10(place.userRatingCount + 1) / 3)
+    : 0;
+  const score = (geographyScore * 0.4) + (typeScore * 0.3) + (titleScore * 0.2) + (ratingConfidence * 0.1);
+  // A secondary restaurant tag is not enough to turn a bar or lounge into a
+  // meal recommendation. Prefer a primary food-service type for meal slots.
+  if (item.type === "meal" && place.primaryType && !/(restaurant|cafe|bakery|meal_takeaway)/.test(place.primaryType)) return Math.min(score, 0.35);
   // A generic walk, neighborhood exploration, or flexible activity is not a venue.
   // Require some name/context agreement before attaching a specific Google place.
   if (item.type === "activity" && titleScore < 0.2) return Math.min(score, 0.35);
