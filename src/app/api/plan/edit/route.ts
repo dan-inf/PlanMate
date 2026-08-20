@@ -3,7 +3,7 @@ import { zodTextFormat } from "openai/helpers/zod";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { enrichPlanWithGoogle, findAlternativePlaces } from "@/lib/google-maps";
+import { enrichPlanWithGoogle, findAlternativePlaces, parseReplacementIntent } from "@/lib/google-maps";
 import { planItemSchema, planSchema } from "@/lib/plan-schema";
 import { replacePlanItem } from "@/lib/plan-edits";
 
@@ -50,6 +50,14 @@ export async function POST(request: Request) {
       if (!day) return NextResponse.json({ error: "That day is no longer available." }, { status: 400 });
       const item = day.items.find((candidate) => candidate.id === body.itemId);
       if (!item) return NextResponse.json({ error: "That plan item is no longer available." }, { status: 400 });
+      const replacementIntent = parseReplacementIntent(body.instruction, item);
+      if (replacementIntent.needsClarification) {
+        return NextResponse.json({
+          alternatives: [],
+          needsClarification: true,
+          suggestedCategories: ["Something outdoors", "Live music or a show", "A bookstore or market", "A local landmark"],
+        });
+      }
       const alternatives = await findAlternativePlaces(body.plan, item, body.instruction);
       return NextResponse.json({ alternatives });
     }

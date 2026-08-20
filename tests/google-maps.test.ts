@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyConstraintConfirmations, applyVerifiedPlace, enrichPlanWithGoogle, keepSingleAccommodationBase, removeSemanticDuplicates, routeIsPlausible, scorePlaceMatch, selectStrongPlace } from "../src/lib/google-maps.ts";
+import { applyConstraintConfirmations, applyVerifiedPlace, buildAlternativeQueries, enrichPlanWithGoogle, keepSingleAccommodationBase, parseReplacementIntent, placeMatchesReplacementIntent, removeSemanticDuplicates, routeIsPlausible, scorePlaceMatch, selectAlternativeCandidates, selectStrongPlace } from "../src/lib/google-maps.ts";
 import type { Plan, PlanItem } from "../src/lib/plan-schema.ts";
 import { replacePlanItem } from "../src/lib/plan-edits.ts";
 
@@ -217,4 +217,52 @@ test("an on-site strategy workshop does not resolve to an entertainment venue", 
   const source = { ...plan(workshop), location: "Austin, Texas" };
   const games = { id: "games", displayName: { text: "Activate Games" }, formattedAddress: "Austin, TX, USA", primaryType: "amusement_center", types: ["amusement_center"] };
   assert.equal(selectStrongPlace([games], workshop, source), null);
+});
+
+test("Italian instead of Mexican accepts only evidence-backed Italian restaurants", () => {
+  const current = item({ title: "Casa Mexico", description: "Mexican dinner", placeId: "current-mexican" });
+  const source = plan(current);
+  const intent = parseReplacementIntent("Italian instead of Mexican", current);
+  const italian = { id: "italian", displayName: { text: "Roma Italian Kitchen" }, formattedAddress: "SoHo, New York, NY", primaryType: "italian_restaurant", types: ["italian_restaurant", "restaurant"], rating: 4.7, userRatingCount: 900 };
+  const mexican = { id: "mexican", displayName: { text: "Tacos Mexico" }, formattedAddress: "SoHo, New York, NY", primaryType: "mexican_restaurant", types: ["mexican_restaurant", "restaurant"], rating: 4.8, userRatingCount: 1200 };
+  const accepted = selectAlternativeCandidates([mexican, italian], source, current, intent);
+  assert.deepEqual(accepted.map(({ place }) => place.id), ["italian"]);
+  assert.ok(accepted.every(({ place }) => /italian/i.test(`${place.displayName?.text} ${place.primaryType}`)));
+});
+
+test("museum rejection asks for direction and blocks museums and unrelated retail", () => {
+  const current = item({ type: "activity", title: "City Art Museum", description: "Museum visit", placeId: "current-museum" });
+  const ambiguous = parseReplacementIntent("I don't like museums", current);
+  assert.equal(ambiguous.needsClarification, true);
+  const intent = parseReplacementIntent("I don't like museums. Something outdoors", current);
+  const museum = { id: "museum", displayName: { text: "History Museum" }, formattedAddress: "New York, NY", primaryType: "museum", types: ["museum"] };
+  const supply = { id: "supply", displayName: { text: "Museum Supply Store" }, formattedAddress: "New York, NY", primaryType: "store", types: ["store", "supplier"] };
+  const park = { id: "park", displayName: { text: "Washington Square Park" }, formattedAddress: "New York, NY", primaryType: "park", types: ["park", "tourist_attraction"] };
+  assert.equal(placeMatchesReplacementIntent(museum, intent, current), false);
+  assert.equal(placeMatchesReplacementIntent(supply, intent, current), false);
+  assert.equal(placeMatchesReplacementIntent(park, intent, current), true);
+});
+
+test("bar exclusions and outdoor intent survive every fallback query", () => {
+  const current = item({ type: "nightlife", title: "Cocktail bar", description: "Late drinks", placeId: "current-bar" });
+  const source = plan(current);
+  const instruction = "Not a bar — a quieter activity, something outdoors";
+  const intent = parseReplacementIntent(instruction, current);
+  for (const query of buildAlternativeQueries(source, current, intent)) {
+    assert.match(query, /outdoor/i);
+    assert.match(query, /(?:not a bar|exclude bar)/i);
+  }
+  const bar = { id: "bar", displayName: { text: "Quiet Wine Bar" }, formattedAddress: "New York, NY", primaryType: "wine_bar", types: ["wine_bar", "bar"] };
+  const park = { id: "park", displayName: { text: "Bryant Park" }, formattedAddress: "New York, NY", primaryType: "park", types: ["park"] };
+  assert.equal(placeMatchesReplacementIntent(bar, intent, current), false);
+  assert.equal(placeMatchesReplacementIntent(park, intent, current), true);
+});
+
+test("weak alternatives return none and the current place is never returned", () => {
+  const current = item({ title: "Casa Mexico", description: "Mexican dinner", placeId: "current" });
+  const source = plan(current);
+  const intent = parseReplacementIntent("Italian instead of Mexican", current);
+  const currentResult = { id: "current", displayName: { text: "Casa Mexico" }, formattedAddress: "SoHo, New York, NY", primaryType: "mexican_restaurant", types: ["mexican_restaurant", "restaurant"] };
+  const unrelated = { id: "hardware", displayName: { text: "Italian Hardware Supply" }, formattedAddress: "SoHo, New York, NY", primaryType: "hardware_store", types: ["hardware_store"] };
+  assert.deepEqual(selectAlternativeCandidates([currentResult, unrelated], source, current, intent), []);
 });

@@ -24,6 +24,14 @@ type GooglePlace = {
 };
 
 type RouteLeg = { minutes: number; distanceMeters: number; mode: "walk" | "drive" };
+export type ReplacementIntent = {
+  instruction: string;
+  desiredTerms: string[];
+  excludedTerms: string[];
+  desiredTypes: string[];
+  excludedTypes: string[];
+  needsClarification: boolean;
+};
 const placeTypes = new Set(["meal", "activity", "accommodation", "nightlife"]);
 const stopWords = new Set(["the", "a", "an", "in", "at", "of", "and", "or", "for", "with", "to"]);
 
@@ -36,6 +44,120 @@ function overlap(left: Set<string>, right: Set<string>) {
   let matches = 0;
   for (const token of left) if (right.has(token)) matches += 1;
   return matches / Math.min(left.size, right.size);
+}
+
+const cuisineTerms = ["italian", "mexican", "thai", "japanese", "chinese", "indian", "french", "greek", "spanish", "korean", "vietnamese", "mediterranean", "ethiopian", "lebanese", "american"];
+const replacementCategories = [
+  { pattern: /\b(outdoor|outdoors|park|garden|nature|walk|hike|waterfront)\b/i, term: "outdoors", types: ["park", "garden", "hiking_area", "tourist_attraction"] },
+  { pattern: /\b(live music|concert|music venue)\b/i, term: "live music", types: ["live_music_venue", "concert_hall"] },
+  { pattern: /\b(theater|theatre|show|performance|play)\b/i, term: "performance", types: ["performing_arts_theater"] },
+  { pattern: /\b(comedy|comedian)\b/i, term: "comedy", types: ["comedy_club"] },
+  { pattern: /\b(bookstore|book shop|books)\b/i, term: "bookstore", types: ["book_store"] },
+  { pattern: /\b(market|food hall|farmers market)\b/i, term: "market", types: ["market", "farmers_market"] },
+  { pattern: /\b(shop|shopping|retail|boutique)\b/i, term: "shopping", types: ["shopping_mall", "store"] },
+  { pattern: /\b(museum)\b/i, term: "museum", types: ["museum"] },
+  { pattern: /\b(gallery|art exhibit)\b/i, term: "gallery", types: ["art_gallery"] },
+  { pattern: /\b(bar|cocktail|drinks|nightlife|wine bar)\b/i, term: "bar", types: ["bar", "wine_bar", "night_club"] },
+];
+
+function unique(values: string[]) { return [...new Set(values.filter(Boolean))]; }
+
+export function parseReplacementIntent(instruction: string, item: PlanItem): ReplacementIntent {
+  const normalized = instruction.toLowerCase().replace(/[’]/g, "'");
+  const desiredTerms: string[] = [];
+  const excludedTerms: string[] = [];
+  const desiredTypes: string[] = [];
+  const excludedTypes: string[] = [];
+
+  for (const cuisine of cuisineTerms) {
+    if (new RegExp(`\\b${cuisine}\\b`).test(normalized)) {
+      const excluded = new RegExp(`(?:not|no|avoid|anything but|instead of|don't like|do not like)[^.!?]{0,28}\\b${cuisine}\\b`).test(normalized)
+        || new RegExp(`\\b${cuisine}\\b[^.!?]{0,18}(?:excluded|avoid)`).test(normalized);
+      (excluded ? excludedTerms : desiredTerms).push(cuisine);
+    }
+  }
+  for (const category of replacementCategories) {
+    if (!category.pattern.test(normalized)) continue;
+    const match = normalized.match(category.pattern)?.[0] ?? category.term;
+    const before = normalized.slice(Math.max(0, normalized.indexOf(match) - 32), normalized.indexOf(match));
+    const excluded = /(?:not|no|avoid|anything but|instead of|don't like|do not like)\s+(?:an?\s+|the\s+)?$/i.test(before);
+    (excluded ? excludedTerms : desiredTerms).push(category.term);
+    (excluded ? excludedTypes : desiredTypes).push(...category.types);
+  }
+  const insteadOf = normalized.match(/(.+?)\s+instead of\s+(.+)/i);
+  if (insteadOf) {
+    const desired = insteadOf[1].replace(/^(?:i(?:'d)? (?:like|want)|give me|find|somewhere|something|an?|the)\s+/i, "").trim();
+    const excluded = insteadOf[2].trim();
+    if (desired) desiredTerms.push(...[...tokens(desired)]);
+    if (excluded) excludedTerms.push(...[...tokens(excluded)]);
+  }
+  const rejectedContext = `${item.title} ${item.description}`.toLowerCase();
+  if (/museum|gallery/.test(rejectedContext) && /don't like museums|do not like museums|no museums|not (?:a )?museum|anything but museums?/i.test(normalized)) {
+    excludedTerms.push("museum", "gallery"); excludedTypes.push("museum", "art_gallery");
+  }
+  if (item.type === "nightlife" && /not (?:a )?bar|no bars?|anything but (?:a )?bar/i.test(normalized)) {
+    excludedTerms.push("bar", "nightlife"); excludedTypes.push("bar", "wine_bar", "night_club");
+  }
+  const cleanedDesired = unique(desiredTerms).filter((term) => !excludedTerms.includes(term));
+  const cleanedTypes = unique(desiredTypes).filter((type) => !excludedTypes.includes(type));
+  const onlyExclusions = cleanedDesired.length === 0 && cleanedTypes.length === 0;
+  return {
+    instruction: instruction.trim(),
+    desiredTerms: cleanedDesired,
+    excludedTerms: unique(excludedTerms),
+    desiredTypes: cleanedTypes,
+    excludedTypes: unique(excludedTypes),
+    needsClarification: item.type === "activity" && onlyExclusions,
+  };
+}
+
+function placeEvidence(place: GooglePlace) {
+  return `${place.displayName?.text ?? ""} ${place.primaryType ?? ""} ${(place.types ?? []).join(" ")}`.toLowerCase().replaceAll("_", " ");
+}
+
+export function placeMatchesReplacementIntent(place: GooglePlace, intent: ReplacementIntent, item: PlanItem) {
+  if (!place.id || place.id === item.placeId || !place.displayName?.text || !place.formattedAddress) return false;
+  const evidence = placeEvidence(place);
+  const actualTypes = new Set([place.primaryType, ...(place.types ?? [])].filter(Boolean) as string[]);
+  if (intent.excludedTypes.some((type) => actualTypes.has(type))) return false;
+  if (intent.excludedTerms.some((term) => new RegExp(`\\b${term.replace(/\s+/g, "[ _-]")}\\b`, "i").test(evidence))) return false;
+  if (intent.desiredTerms.some((term) => cuisineTerms.includes(term)) && ![...actualTypes].some((type) => /restaurant|cafe|meal_takeaway/.test(type))) return false;
+  if (intent.desiredTypes.length && !intent.desiredTypes.some((type) => actualTypes.has(type))) return false;
+  if (!intent.desiredTypes.length && intent.desiredTerms.length && !intent.desiredTerms.some((term) => new RegExp(`\\b${term.replace(/\s+/g, "[ _-]")}\\b`, "i").test(evidence))) return false;
+  if (item.type === "activity" && !intent.desiredTypes.some((type) => /store|shopping/.test(type)) && [...actualTypes].some((type) => /store|supplier|hardware|home_goods|wholesaler/.test(type))) return false;
+  return true;
+}
+
+export function buildAlternativeQueries(plan: Plan, item: PlanItem, intent: ReplacementIntent) {
+  const desired = [...intent.desiredTerms, ...intent.desiredTypes.map((type) => type.replaceAll("_", " "))].join(" ") || instructionCategory(item);
+  const exclusions = intent.excludedTerms.length ? `exclude ${intent.excludedTerms.join(" and ")}` : "";
+  return unique([
+    `${intent.instruction}, ${desired}, ${item.location}, ${plan.location}, ${plan.budgetLabel}, ${exclusions}`,
+    `${desired} near ${item.location}, ${plan.location}, ${plan.budgetLabel}, requested change: ${intent.instruction}, ${exclusions}`,
+    `${desired}, ${plan.location}, ${item.location}, ${intent.instruction}, ${exclusions}`,
+  ]).map((query) => query.replace(/,\s*,/g, ",").slice(0, 450));
+}
+
+function instructionCategory(item: PlanItem) {
+  return item.type === "meal" ? "restaurant" : item.type === "nightlife" ? "evening activity" : "activity";
+}
+
+function replacementItemFor(item: PlanItem, intent: ReplacementIntent): PlanItem {
+  const requestedType = intent.desiredTypes.some((type) => /restaurant|cafe|bakery/.test(type)) || intent.desiredTerms.some((term) => cuisineTerms.includes(term))
+    ? "meal"
+    : intent.desiredTypes.some((type) => /bar|night_club|wine_bar/.test(type))
+      ? "nightlife"
+      : intent.desiredTypes.length ? "activity" : item.type;
+  return { ...item, type: requestedType, title: intent.desiredTerms.join(" ") || intent.instruction, description: intent.instruction };
+}
+
+export function selectAlternativeCandidates(places: GooglePlace[], plan: Plan, item: PlanItem, intent: ReplacementIntent) {
+  const replacementItem = replacementItemFor(item, intent);
+  return places
+    .filter((place) => placeMatchesReplacementIntent(place, intent, item))
+    .map((place) => ({ place, score: Math.min(1, scorePlaceMatch(place, replacementItem, plan) + 0.2) }))
+    .filter((candidate) => candidate.score >= 0.42)
+    .sort((left, right) => right.score - left.score);
 }
 
 function expectedGoogleTypes(item: PlanItem) {
@@ -155,22 +277,22 @@ export function normalizeSuggestedItem(item: PlanItem) {
 export async function findAlternativePlaces(plan: Plan, item: PlanItem, instruction: string) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY ?? process.env.GOOGLE_MAPS_SERVER_API_KEY;
   if (!apiKey) return [];
+  const intent = parseReplacementIntent(instruction, item);
+  if (intent.needsClarification) return [];
   const found = new Map<string, GooglePlace>();
-  const queries = [
-    `${instruction}, ${contextualQuery(item, plan)}`,
-    `${instruction}, ${item.type} near ${item.location}, ${plan.location}`,
-    `${item.type} alternative, ${plan.budgetLabel}, ${plan.location}`,
-  ];
+  const replacementItem = replacementItemFor(item, intent);
+  const queries = buildAlternativeQueries(plan, item, intent);
   for (const query of queries) {
     const places = await searchPlaces(query, apiKey, 8);
-    for (const place of places) {
-      if (place.id && place.id !== item.placeId && selectStrongPlace([place], item, plan)) found.set(place.id, place);
+    for (const { place } of selectAlternativeCandidates(places, plan, item, intent)) {
+      if (place.id) found.set(place.id, place);
     }
     if (found.size >= 3) break;
   }
   return [...found.values()].slice(0, 3).map((place, index): PlanItem => {
     const alternative = { ...item, id: `${item.id}-alternative-${place.id ?? index}`, travelMinutes: 0, travelMode: null, routeDistanceMeters: null };
-    applyVerifiedPlace(alternative, place, scorePlaceMatch(place, item, plan));
+    applyVerifiedPlace(alternative, place, scorePlaceMatch(place, replacementItem, plan));
+    alternative.matchReason = `Matches the requested change: ${instruction.trim()}.`;
     return alternative;
   });
 }

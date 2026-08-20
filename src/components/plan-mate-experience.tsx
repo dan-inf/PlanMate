@@ -122,6 +122,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
   const [wholePlanInstruction, setWholePlanInstruction] = useState("");
   const [alternatives, setAlternatives] = useState<PlanItem[]>([]);
   const [searchedAlternatives, setSearchedAlternatives] = useState(false);
+  const [alternativeClarification, setAlternativeClarification] = useState<string[]>([]);
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [undoPlan, setUndoPlan] = useState<Plan | null>(null);
@@ -276,7 +277,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = (await response.json()) as { plan?: Plan; alternatives?: PlanItem[]; error?: string };
+    const data = (await response.json()) as { plan?: Plan; alternatives?: PlanItem[]; needsClarification?: boolean; suggestedCategories?: string[]; error?: string };
     if (!response.ok) throw new Error(data.error ?? "AgreeAway could not update the plan.");
     return data;
   }
@@ -289,6 +290,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
       if (editor.kind === "alternatives") {
         const data = await requestEdit({ operation: "alternatives", plan, dayIndex: editor.dayIndex, itemId: editor.item.id, instruction: editInstruction });
         setAlternatives(data.alternatives ?? []);
+        setAlternativeClarification(data.needsClarification ? data.suggestedCategories ?? [] : []);
         setSearchedAlternatives(true);
       } else {
         const data = await requestEdit({ operation: "add", plan, dayIndex: editor.dayIndex, insertAfterIndex: editor.afterIndex, instruction: editInstruction });
@@ -348,11 +350,11 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
   }
 
   function openEditor(nextEditor: DraftEditor) {
-    setEditor(nextEditor); setAlternatives([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null); setError(null);
+    setEditor(nextEditor); setAlternatives([]); setAlternativeClarification([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null); setError(null);
   }
 
   function closeEditor() {
-    setEditor(null); setAlternatives([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null);
+    setEditor(null); setAlternatives([]); setAlternativeClarification([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null);
   }
 
   function undoLastEdit() {
@@ -676,8 +678,9 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
               <button disabled={editing || editInstruction.trim().length < 3} className="grid size-11 shrink-0 place-items-center rounded-xl bg-[#d96545] text-white disabled:opacity-40" aria-label="Send request">{editing ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}</button>
             </form>
             {editError ? <p role="alert" className="mt-3 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">{editError}</p> : null}
-            {editor.kind === "alternatives" && alternatives.length ? <div className="mt-6 space-y-3"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#69766e]">Google-verified options</p>{alternatives.map((alternative) => <div key={alternative.id} className="rounded-2xl border border-[#1e2822]/9 bg-white p-4"><div className="flex items-start justify-between gap-4"><div><h4 className="font-bold">{alternative.title}</h4><p className="mt-1 text-sm text-[#6d7a72]">{alternative.location}</p><p className="mt-2 text-xs text-[#315d45]">Matches “{editInstruction}”</p></div><button type="button" disabled={editing} onClick={() => replaceItem(alternative)} className="shrink-0 rounded-full bg-[#194d3a] px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Choose</button></div>{alternative.bookingUrl ? <a href={alternative.bookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#315d45]">View on Maps<ExternalLink className="size-3" /></a> : null}</div>)}</div> : null}
-            {editor.kind === "alternatives" && searchedAlternatives && !alternatives.length ? <p className="mt-5 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">No strong matches came back. Try describing a neighborhood, cuisine, price point, or vibe.</p> : null}
+            {editor.kind === "alternatives" && alternativeClarification.length ? <div className="mt-5 rounded-2xl bg-[#eef3ed] p-4"><p className="text-sm font-semibold text-[#315d45]">What would you enjoy instead?</p><p className="mt-1 text-xs text-[#65736b]">Choose a direction so we can avoid irrelevant guesses.</p><div className="mt-3 flex flex-wrap gap-2">{alternativeClarification.map((choice) => <button key={choice} type="button" onClick={() => { setEditInstruction(`${editInstruction.trim()}. ${choice}`); setAlternativeClarification([]); setSearchedAlternatives(false); }} className="rounded-full border border-[#194d3a]/15 bg-white px-3 py-2 text-xs font-semibold text-[#315d45]">{choice}</button>)}</div></div> : null}
+            {editor.kind === "alternatives" && alternatives.length ? <div className="mt-6 space-y-3"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#69766e]">Google-verified options</p>{alternatives.map((alternative) => <div key={alternative.id} className="rounded-2xl border border-[#1e2822]/9 bg-white p-4"><div className="flex items-start justify-between gap-4"><div><h4 className="font-bold">{alternative.title}</h4><p className="mt-1 text-sm text-[#6d7a72]">{alternative.location}</p>{alternative.matchReason ? <p className="mt-2 text-xs text-[#315d45]">{alternative.matchReason}</p> : null}</div><button type="button" disabled={editing} onClick={() => replaceItem(alternative)} className="shrink-0 rounded-full bg-[#194d3a] px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Choose</button></div>{alternative.bookingUrl ? <a href={alternative.bookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#315d45]">View on Maps<ExternalLink className="size-3" /></a> : null}</div>)}</div> : null}
+            {editor.kind === "alternatives" && searchedAlternatives && !alternatives.length && !alternativeClarification.length ? <p className="mt-5 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">No strong matches came back. Try describing a neighborhood, cuisine, price point, or vibe.</p> : null}
             {editor.kind === "alternatives" ? <button type="button" onClick={closeEditor} className="mt-5 w-full py-2 text-sm font-semibold text-[#65736b]">Keep original choice</button> : null}
           </div>
         </div>
