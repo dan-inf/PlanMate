@@ -34,7 +34,9 @@ export async function GET(request: NextRequest) {
     const result = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
     failed = Boolean(result.error);
   } else {
-    return NextResponse.redirect(failure);
+    const completion = new URL("/auth/complete", appOrigin(request));
+    for (const [key, value] of new URLSearchParams(authContinuationQuery(continuation))) completion.searchParams.set(key, value);
+    return NextResponse.redirect(completion);
   }
 
   if (failed) return NextResponse.redirect(failure);

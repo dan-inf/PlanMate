@@ -26,7 +26,7 @@ In **Authentication → Email Templates → Confirm signup**, use the server-ver
 <a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email">Confirm email address</a>
 ```
 
-The application always supplies an AgreeAway `/auth/callback` URL with an allowlisted continuation. Do not replace `.RedirectTo` with an arbitrary request parameter. The default `.ConfirmationURL` flow returns credentials in a browser fragment and cannot establish the required server cookie session.
+The application always supplies an AgreeAway `/auth/callback` URL with an allowlisted continuation. Do not replace `.RedirectTo` with an arbitrary request parameter. The app includes a short-lived compatibility bridge for the default `.ConfirmationURL` browser-fragment flow, but the token-hash template is preferred because it establishes the session server-side.
 
 Verify signup, email confirmation, sign-in, sign-out, generated-plan save, invitation acceptance, and password reset if enabled. Each callback must preserve the generated-save or invitation token and must reject unapproved redirect origins.
 
