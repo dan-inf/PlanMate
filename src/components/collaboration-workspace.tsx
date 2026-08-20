@@ -28,9 +28,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 import { planCategorySchema, planSchema, type Plan } from "@/lib/plan-schema";
 import { samplePlan } from "@/lib/sample-plan";
+import { authCallbackUrl } from "@/lib/supabase/auth-continuation";
 import { createClient } from "@/lib/supabase/client";
 import {
-  pendingPlanStorageKey,
+  clearPendingGeneratedPlan,
   persistGeneratedPlan,
   readPendingGeneratedPlan,
 } from "@/lib/supabase/save-generated-plan";
@@ -211,7 +212,7 @@ export function CollaborationWorkspace() {
             category: parsedCategory,
             prompt: typeof parsed.prompt === "string" ? parsed.prompt : "",
           });
-          window.sessionStorage.removeItem(pendingPlanStorageKey);
+          clearPendingGeneratedPlan();
           window.history.replaceState({}, "", `/collaborate?plan=${savedPlanId}`);
           setNotice("Your plan is saved. It’s ready to edit and share.");
           await loadPlans(savedPlanId);
@@ -535,11 +536,11 @@ function BaseAuthScreen({ supabase }: { supabase: ReturnType<typeof createClient
           password,
           options: {
             data: { display_name: name },
-            emailRedirectTo: `${window.location.origin}/collaborate${savingPlan ? "?save=generated" : invitationToken ? `?invite=${invitationToken}` : ""}`,
+            emailRedirectTo: authCallbackUrl(process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin, savingPlan ? { kind: "save" } : invitationToken ? { kind: "invite", token: invitationToken } : { kind: "account" }),
           },
         });
     if (result.error) setMessage(result.error.message);
-    else if (mode === "signup" && !result.data.session) setMessage("Check your email to confirm your account, then return here to sign in.");
+    else if (mode === "signup" && !result.data.session) setMessage(savingPlan ? "Check your email. The confirmation link will sign you in and finish saving this plan." : "Check your email. The confirmation link will sign you in and open your workspace.");
     setBusy(false);
   }
   if (savingPlan) return <main className="grid min-h-screen place-items-center bg-[#f4f1ea] p-5"><div className="w-full max-w-md rounded-[30px] border border-[#1e2822]/10 bg-[#fffdf8] p-7 shadow-[0_30px_80px_rgba(35,48,40,.12)] sm:p-9"><Link href="/plan/draft" className="inline-flex items-center gap-2 text-sm font-semibold text-[#657168]"><ArrowLeft className="size-4" />Back to your draft</Link><Link href="/" className="mt-6 flex items-center gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-[#194d3a] text-white"><Sparkles className="size-5" /></span><span className="text-xl font-bold">AgreeAway</span></Link><div className="mt-8 flex items-center gap-2 rounded-2xl bg-[#e7eee8] px-4 py-3 text-sm font-semibold text-[#315c44]"><CheckCircle2 className="size-4" />Your plan is ready to save</div><h1 className="mt-8 font-serif text-4xl tracking-[-0.04em]">{mode === "signup" ? "Create an account to save this plan" : "Sign in to save your plan"}</h1><p className="mt-3 text-sm leading-6 text-[#69766e]">{mode === "signup" ? "Create your free account and we’ll save the exact plan you just generated." : "Welcome back. Sign in and we’ll save your plan to your workspace."}</p><form onSubmit={submit} className="mt-7 space-y-4">{mode === "signup" ? <label className="block text-sm font-semibold">Your name<input value={name} onChange={(event) => setName(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label> : null}<label className="block text-sm font-semibold">Email<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label><label className="block text-sm font-semibold">Password<input type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required className="mt-2 w-full rounded-xl border border-[#1e2822]/12 bg-white px-4 py-3 outline-none" /></label>{message ? <p className="rounded-xl bg-[#fff0e7] p-3 text-sm text-[#985039]">{message}</p> : null}<button disabled={busy} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-[#d96545] font-bold text-white">{busy ? <LoaderCircle className="size-4 animate-spin" /> : mode === "signup" ? "Create account & save plan" : "Sign in & save plan"}<ChevronRight className="size-4" /></button></form><button type="button" onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setMessage(null); }} className="mt-5 w-full text-sm font-semibold text-[#526159]">{mode === "signup" ? "Already have an account? Sign in" : "New to AgreeAway? Create an account"}</button></div></main>;
@@ -563,9 +564,9 @@ function InvitationAuthScreen({ supabase, token }: { supabase: ReturnType<typeof
   async function join(event: FormEvent) {
     event.preventDefault(); setBusy(true); setMessage(null);
     void supabase.rpc("track_product_event", { event_name: "invitation_auth_started", properties: { mode } });
-    const result = mode === "signin" ? await supabase.auth.signInWithPassword({ email, password }) : await supabase.auth.signUp({ email, password, options: { data: { display_name: name }, emailRedirectTo: `${window.location.origin}/collaborate?invite=${token}` } });
+    const result = mode === "signin" ? await supabase.auth.signInWithPassword({ email, password }) : await supabase.auth.signUp({ email, password, options: { data: { display_name: name }, emailRedirectTo: authCallbackUrl(process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin, { kind: "invite", token }) } });
     if (result.error) setMessage(result.error.message);
-    else if (mode === "signup" && !result.data.session) { void supabase.rpc("track_product_event", { event_name: "invitation_account_created", properties: {} }); setMessage("Check your email to confirm your account. The confirmation link will bring you back to this Plan."); }
+    else if (mode === "signup" && !result.data.session) { void supabase.rpc("track_product_event", { event_name: "invitation_account_created", properties: {} }); setMessage("Check your email. The confirmation link will sign you in, accept this invitation, and open the shared Plan."); }
     setBusy(false);
   }
   if (!preview) return <FullPageLoader />;

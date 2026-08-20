@@ -34,9 +34,11 @@ import { assumptionsForSkip, clarificationQuestions, extractPlanningIntent, help
 import { samplePlan } from "@/lib/sample-plan";
 import { createClient } from "@/lib/supabase/client";
 import {
+  clearPendingGeneratedPlan,
   pendingPlanStorageKey,
   readPendingGeneratedPlan,
   persistGeneratedPlan,
+  stagePendingGeneratedPlan,
   type PendingGeneratedPlan,
 } from "@/lib/supabase/save-generated-plan";
 
@@ -244,7 +246,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
       intent: parsedPending?.intent ?? extractPlanningIntent(prompt),
       assumptions: plan.planningAssumptions ?? parsedPending?.assumptions ?? [],
     };
-    window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify(pending));
+    stagePendingGeneratedPlan(JSON.stringify(pending));
 
     try {
       const supabase = createClient();
@@ -254,7 +256,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
         return;
       }
       const planId = await persistGeneratedPlan(supabase, data.user, pending);
-      window.sessionStorage.removeItem(pendingPlanStorageKey);
+      clearPendingGeneratedPlan();
       router.push(`/collaborate?plan=${planId}&saved=1`);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Could not save this plan.");

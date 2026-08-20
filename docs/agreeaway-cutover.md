@@ -20,6 +20,14 @@ In project `hsmuzlztcwvfkudzmclt`, open **Authentication → URL Configuration**
 - Local development redirect: `http://127.0.0.1:3000/**`
 - Add only the specific Vercel Preview origins actively used for auth testing; avoid a broad third-party wildcard.
 
+In **Authentication → Email Templates → Confirm signup**, use the server-verifiable token hash while retaining the app-provided continuation URL:
+
+```html
+<a href="{{ .RedirectTo }}&token_hash={{ .TokenHash }}&type=email">Confirm email address</a>
+```
+
+The application always supplies an AgreeAway `/auth/callback` URL with an allowlisted continuation. Do not replace `.RedirectTo` with an arbitrary request parameter. The default `.ConfirmationURL` flow returns credentials in a browser fragment and cannot establish the required server cookie session.
+
 Verify signup, email confirmation, sign-in, sign-out, generated-plan save, invitation acceptance, and password reset if enabled. Each callback must preserve the generated-save or invitation token and must reject unapproved redirect origins.
 
 Apply `supabase/migrations/20260820090000_agreeaway_invitation_brand.sql`. Keep the existing database, users, schemas, and historical audit/source snapshots unchanged.
