@@ -34,3 +34,13 @@ export function authCallbackUrl(origin: string, continuation: AuthContinuation) 
   url.search = query;
   return url.toString();
 }
+
+export function authContinuationFromRedirectUrl(value: string, currentOrigin: string) {
+  try {
+    const redirect = new URL(value);
+    if (redirect.origin !== currentOrigin || redirect.pathname !== "/auth/callback") return { kind: "account" } satisfies AuthContinuation;
+    return authContinuationFromParams(redirect.searchParams);
+  } catch {
+    return { kind: "account" } satisfies AuthContinuation;
+  }
+}

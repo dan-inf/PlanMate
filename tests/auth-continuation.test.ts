@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { authCallbackUrl, authContinuationFromParams, authContinuationPath } from "../src/lib/supabase/auth-continuation.ts";
+import { authCallbackUrl, authContinuationFromParams, authContinuationFromRedirectUrl, authContinuationPath } from "../src/lib/supabase/auth-continuation.ts";
 import { clearPendingGeneratedPlan, readPendingGeneratedPlan, stagePendingGeneratedPlan } from "../src/lib/supabase/save-generated-plan.ts";
 
 class MemoryStorage {
@@ -29,6 +29,12 @@ test("only UUID invitation tokens survive auth continuation", () => {
 test("unknown and external continuation input falls back to the account workspace", () => {
   assert.equal(authContinuationPath(authContinuationFromParams(new URLSearchParams("continue=https://evil.example"))), "/collaborate");
   assert.equal(authCallbackUrl("https://agreeaway.com", { kind: "account" }), "https://agreeaway.com/auth/callback?continue=account");
+});
+
+test("email confirmation accepts only an AgreeAway callback continuation", () => {
+  assert.deepEqual(authContinuationFromRedirectUrl("https://agreeaway.com/auth/callback?continue=save", "https://agreeaway.com"), { kind: "save" });
+  assert.deepEqual(authContinuationFromRedirectUrl("https://evil.example/auth/callback?continue=save", "https://agreeaway.com"), { kind: "account" });
+  assert.deepEqual(authContinuationFromRedirectUrl("https://agreeaway.com/not-auth?continue=save", "https://agreeaway.com"), { kind: "account" });
 });
 
 test("pending generated plan survives a new browser tab and is cleared after save", () => {
