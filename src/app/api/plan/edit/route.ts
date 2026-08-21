@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { enrichPlanWithGoogle, findAlternativePlaces, parseReplacementIntent } from "@/lib/google-maps";
 import { planItemSchema, planSchema } from "@/lib/plan-schema";
-import { replacePlanItem } from "@/lib/plan-edits";
+import { mergeAddedPlanItem, replacePlanItem } from "@/lib/plan-edits";
 
 export const runtime = "nodejs";
 
@@ -117,10 +117,17 @@ Rules:
     if (!response.output_parsed) {
       return NextResponse.json({ error: "AgreeAway could not apply that change." }, { status: 422 });
     }
-    const enriched = await enrichPlanWithGoogle({
+    const parsedPlan = {
       ...response.output_parsed,
       planningAssumptions: body.plan.planningAssumptions,
-    });
+    };
+    const safePlan = body.operation === "add"
+      ? mergeAddedPlanItem(body.plan, parsedPlan, body.dayIndex, body.insertAfterIndex ?? -1)
+      : parsedPlan;
+    if (!safePlan) {
+      return NextResponse.json({ error: "AgreeAway could not identify the new stop. Try describing it more specifically." }, { status: 422 });
+    }
+    const enriched = await enrichPlanWithGoogle(safePlan);
     return NextResponse.json({ plan: enriched.plan });
   } catch (error) {
     if (error instanceof z.ZodError) {

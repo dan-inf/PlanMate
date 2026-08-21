@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { applyConstraintConfirmations, applyVerifiedPlace, buildAlternativeQueries, enrichPlanWithGoogle, keepSingleAccommodationBase, parseReplacementIntent, placeMatchesReplacementIntent, removeSemanticDuplicates, routeIsPlausible, scorePlaceMatch, selectAlternativeCandidates, selectStrongPlace } from "../src/lib/google-maps.ts";
 import type { Plan, PlanItem } from "../src/lib/plan-schema.ts";
-import { replacePlanItem } from "../src/lib/plan-edits.ts";
+import { mergeAddedPlanItem, replacePlanItem } from "../src/lib/plan-edits.ts";
 
 function item(overrides: Partial<PlanItem> = {}): PlanItem {
   return { id: "dinner", time: "19:00", title: "Italian dinner", type: "meal", description: "Relaxed neighborhood restaurant", location: "SoHo, New York", costPerPerson: 60, travelMinutes: 0, status: "needs-booking", verification: "suggested", bookingUrl: null, ...overrides };
@@ -135,6 +135,27 @@ test("replacement preserves unrelated Plan state and stable identity", () => {
   assert.equal(updated.days[0].items[0].time, "19:00");
   assert.deepEqual(updated.days[1], source.days[1]);
   assert.equal(source.days[0].items[0].title, "Italian dinner");
+});
+
+test("adding one stop cannot erase later days or unrelated items", () => {
+  const source = plan();
+  source.days[0].items.push(item({ id: "later", title: "Late dessert", time: "21:00" }));
+  source.days.push({ label: "Saturday", date: "", items: [item({ id: "museum", title: "Museum" })] });
+  const edited = structuredClone(source);
+  edited.days[0].items = [
+    item({ time: "18:45" }),
+    item({ id: "club", title: "Nightlife stop", type: "nightlife", time: "21:30" }),
+    item({ id: "later", title: "Late dessert", time: "23:00" }),
+  ];
+  edited.days[1].items = [];
+
+  const merged = mergeAddedPlanItem(source, edited, 0, 0);
+  assert.ok(merged);
+  assert.deepEqual(merged.days[0].items.map((candidate) => candidate.id), ["dinner", "club", "later"]);
+  assert.equal(merged.days[0].items[0].time, "18:45");
+  assert.equal(merged.days[0].items[2].time, "23:00");
+  assert.deepEqual(merged.days[1], source.days[1]);
+  assert.equal(source.days[0].items.length, 2);
 });
 
 test("single-base plan keeps the same verified accommodation", () => {
