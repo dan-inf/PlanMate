@@ -126,6 +126,8 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
   const [alternatives, setAlternatives] = useState<PlanItem[]>([]);
   const [searchedAlternatives, setSearchedAlternatives] = useState(false);
   const [alternativeClarification, setAlternativeClarification] = useState<string[]>([]);
+  const [addPreviewPlan, setAddPreviewPlan] = useState<Plan | null>(null);
+  const [addedItemId, setAddedItemId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [undoPlan, setUndoPlan] = useState<Plan | null>(null);
@@ -300,7 +302,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = (await response.json()) as { plan?: Plan; alternatives?: PlanItem[]; needsClarification?: boolean; suggestedCategories?: string[]; error?: string };
+    const data = (await response.json()) as { plan?: Plan; alternatives?: PlanItem[]; addedItemId?: string; needsClarification?: boolean; suggestedCategories?: string[]; error?: string };
     if (!response.ok) throw new Error(data.error ?? "AgreeAway could not update the plan.");
     return data;
   }
@@ -317,8 +319,10 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
         setSearchedAlternatives(true);
       } else {
         const data = await requestEdit({ operation: "add", plan, dayIndex: editor.dayIndex, insertAfterIndex: editor.afterIndex, instruction: editInstruction });
-        if (data.plan) commitDraft(data.plan);
-        closeEditor();
+        setAddPreviewPlan(data.plan ?? null);
+        setAddedItemId(data.addedItemId ?? null);
+        setAlternatives(data.alternatives ?? []);
+        setSearchedAlternatives(true);
       }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "AgreeAway could not update the plan.";
@@ -361,6 +365,19 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
     } finally { setEditing(false); }
   }
 
+  async function confirmAddedItem(replacement: PlanItem) {
+    if (!addPreviewPlan || !addedItemId) return;
+    setEditing(true); setError(null); setEditError(null);
+    try {
+      const data = await requestEdit({ operation: "replace", plan: addPreviewPlan, dayIndex: editor?.kind === "add" ? editor.dayIndex : 0, itemId: addedItemId, replacement });
+      if (data.plan) commitDraft(data.plan);
+      closeEditor();
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "AgreeAway could not add that stop.";
+      setError(message); setEditError(message);
+    } finally { setEditing(false); }
+  }
+
   async function removeItem(dayIndex: number, item: PlanItem) {
     if (!plan) return;
     setEditing(true); setError(null);
@@ -373,11 +390,11 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
   }
 
   function openEditor(nextEditor: DraftEditor) {
-    setEditor(nextEditor); setAlternatives([]); setAlternativeClarification([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null); setError(null);
+    setEditor(nextEditor); setAlternatives([]); setAlternativeClarification([]); setAddPreviewPlan(null); setAddedItemId(null); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null); setError(null);
   }
 
   function closeEditor() {
-    setEditor(null); setAlternatives([]); setAlternativeClarification([]); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null);
+    setEditor(null); setAlternatives([]); setAlternativeClarification([]); setAddPreviewPlan(null); setAddedItemId(null); setSearchedAlternatives(false); setEditInstruction(""); setEditError(null);
   }
 
   function undoLastEdit() {
@@ -706,7 +723,9 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
             {editError ? <p role="alert" className="mt-3 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">{editError}</p> : null}
             {editor.kind === "alternatives" && alternativeClarification.length ? <div className="mt-5 rounded-2xl bg-[#eef3ed] p-4"><p className="text-sm font-semibold text-[#315d45]">What would you enjoy instead?</p><p className="mt-1 text-xs text-[#65736b]">Choose a direction so we can avoid irrelevant guesses.</p><div className="mt-3 flex flex-wrap gap-2">{alternativeClarification.map((choice) => <button key={choice} type="button" onClick={() => { setEditInstruction(`${editInstruction.trim()}. ${choice}`); setAlternativeClarification([]); setSearchedAlternatives(false); }} className="rounded-full border border-[#194d3a]/15 bg-white px-3 py-2 text-xs font-semibold text-[#315d45]">{choice}</button>)}</div></div> : null}
             {editor.kind === "alternatives" && alternatives.length ? <div className="mt-6 space-y-3"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#69766e]">Google-verified options</p>{alternatives.map((alternative) => <div key={alternative.id} className="rounded-2xl border border-[#1e2822]/9 bg-white p-4"><div className="flex items-start justify-between gap-4"><div><h4 className="font-bold">{alternative.title}</h4><p className="mt-1 text-sm text-[#6d7a72]">{alternative.location}</p>{alternative.matchReason ? <p className="mt-2 text-xs text-[#315d45]">{alternative.matchReason}</p> : null}</div><button type="button" disabled={editing} onClick={() => replaceItem(alternative)} className="shrink-0 rounded-full bg-[#194d3a] px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Choose</button></div>{alternative.bookingUrl ? <a href={alternative.bookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#315d45]">View on Maps<ExternalLink className="size-3" /></a> : null}</div>)}</div> : null}
+            {editor.kind === "add" && alternatives.length ? <div className="mt-6 space-y-3"><p className="text-xs font-bold uppercase tracking-[.12em] text-[#69766e]">Choose a stop to add</p><p className="text-xs leading-5 text-[#65736b]">Nothing changes until you choose an option.</p>{alternatives.map((alternative) => <div key={alternative.id} className="rounded-2xl border border-[#1e2822]/9 bg-white p-4"><div className="flex items-start justify-between gap-4"><div><h4 className="font-bold">{alternative.title}</h4><p className="mt-1 text-sm text-[#6d7a72]">{alternative.location}</p>{alternative.matchReason ? <p className="mt-2 text-xs text-[#315d45]">{alternative.matchReason}</p> : null}</div><button type="button" disabled={editing} onClick={() => void confirmAddedItem(alternative)} className="shrink-0 rounded-full bg-[#194d3a] px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Add to plan</button></div>{alternative.bookingUrl ? <a href={alternative.bookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#315d45]">View on Maps<ExternalLink className="size-3" /></a> : null}</div>)}</div> : null}
             {editor.kind === "alternatives" && searchedAlternatives && !alternatives.length && !alternativeClarification.length ? <p className="mt-5 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">No strong matches came back. Try describing a neighborhood, cuisine, price point, or vibe.</p> : null}
+            {editor.kind === "add" && searchedAlternatives && !alternatives.length ? <p className="mt-5 rounded-2xl bg-[#fff0e7] p-4 text-sm text-[#985039]">No strong options came back, so nothing was added. Try a more specific activity, neighborhood, or vibe.</p> : null}
             {editor.kind === "alternatives" ? <button type="button" onClick={closeEditor} className="mt-5 w-full py-2 text-sm font-semibold text-[#65736b]">Keep original choice</button> : null}
           </div>
         </div>

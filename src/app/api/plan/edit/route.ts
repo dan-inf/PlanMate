@@ -127,6 +127,13 @@ Rules:
     if (!safePlan) {
       return NextResponse.json({ error: "AgreeAway could not identify the new stop. Try describing it more specifically." }, { status: 422 });
     }
+    if (body.operation === "add") {
+      const originalIds = new Set(body.plan.days[body.dayIndex].items.map((item) => item.id));
+      const inserted = safePlan.days[body.dayIndex].items.find((item) => !originalIds.has(item.id));
+      if (!inserted) return NextResponse.json({ error: "AgreeAway could not identify the new stop." }, { status: 422 });
+      const alternatives = await findAlternativePlaces(safePlan, inserted, body.instruction ?? inserted.title);
+      return NextResponse.json({ plan: safePlan, alternatives, addedItemId: inserted.id });
+    }
     const enriched = await enrichPlanWithGoogle(safePlan);
     return NextResponse.json({ plan: enriched.plan });
   } catch (error) {
