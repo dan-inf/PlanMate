@@ -415,7 +415,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
   }
 
   return (
-    <main className="min-h-screen overflow-hidden bg-[#f6f3ed] text-[#1e2822]">
+    <main className={`min-h-screen overflow-hidden bg-[#f6f3ed] text-[#1e2822] ${plan ? "pb-28" : ""}`}>
       <header className={draftMode ? "hidden" : "relative z-20 border-b border-[#1e2822]/10 bg-[#f6f3ed]/90 backdrop-blur-xl"}>
         <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
           <a href="#top" className="flex items-center gap-3" aria-label="AgreeAway home">
@@ -573,7 +573,6 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
               <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
                 {undoPlan ? <button type="button" onClick={undoLastEdit} className="inline-flex items-center justify-center gap-2 rounded-full border border-[#1e2822]/15 bg-white/70 px-4 py-3 text-sm font-semibold"><RotateCcw className="size-4" />Undo edit</button> : null}
                 <button type="button" onClick={() => { setPlan(null); router.push("/"); }} className="inline-flex items-center justify-center gap-2 rounded-full border border-[#1e2822]/15 bg-white/70 px-4 py-3 text-sm font-semibold"><RotateCcw className="size-4" />Start another</button>
-                <button type="button" onClick={savePlan} disabled={saving} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-[#d96545] px-6 text-sm font-bold text-white shadow-[0_10px_26px_rgba(217,101,69,0.25)] transition hover:-translate-y-0.5 hover:bg-[#c75739] disabled:opacity-60">{saving ? <LoaderCircle className="size-4 animate-spin" /> : <LogIn className="size-4" />}Save this plan</button>
               </div>
             ) : null}
           </div>
@@ -703,6 +702,13 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
           </div>
         </div>
       </section>
+
+      {plan && !editor && !clarification.length ? <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+        <div className="pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl border border-white/20 bg-[#183b2d]/96 p-2.5 pl-4 text-white shadow-[0_18px_55px_rgba(24,59,45,0.35)] backdrop-blur-md sm:rounded-full">
+          <p className="min-w-0 flex-1 text-xs leading-5 text-white/75"><span className="block font-bold text-white">Ready to keep it?</span>Save, edit, and invite collaborators.</p>
+          <button type="button" onClick={savePlan} disabled={saving} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-[#d96545] px-5 text-sm font-bold text-white transition hover:bg-[#c75739] disabled:opacity-60">{saving ? <LoaderCircle className="size-4 animate-spin" /> : <LogIn className="size-4" />}{saving ? "Saving…" : "Save this plan"}</button>
+        </div>
+      </div> : null}
 
       {editor ? <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#17251e]/45 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label={editor.kind === "alternatives" ? "Explore alternatives" : "Add a plan stop"}>
         <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-[#fffdf8] shadow-2xl sm:rounded-[28px]">
