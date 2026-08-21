@@ -48,6 +48,7 @@ function overlap(left: Set<string>, right: Set<string>) {
 
 const cuisineTerms = ["italian", "mexican", "thai", "japanese", "chinese", "indian", "french", "greek", "spanish", "korean", "vietnamese", "mediterranean", "ethiopian", "lebanese", "american"];
 const replacementCategories = [
+  { pattern: /\b(winer(?:y|ies)|vineyards?|wine tasting|tasting room)\b/i, term: "winery", types: ["winery"] },
   { pattern: /\b(outdoor|outdoors|park|garden|nature|walk|hike|waterfront)\b/i, term: "outdoors", types: ["park", "garden", "hiking_area", "tourist_attraction"] },
   { pattern: /\b(live music|concert|music venue)\b/i, term: "live music", types: ["live_music_venue", "concert_hall"] },
   { pattern: /\b(theater|theatre|show|performance|play)\b/i, term: "performance", types: ["performing_arts_theater"] },
@@ -169,6 +170,7 @@ function expectedGoogleTypes(item: PlanItem) {
   if (/book(?:shop|store)|books/.test(context)) return new Set(["book_store"]);
   if (/coffee|cafe|bakery/.test(context)) return new Set(["cafe", "coffee_shop", "bakery"]);
   if (/market/.test(context)) return new Set(["market", "farmers_market"]);
+  if (/winer(?:y|ies)|vineyard|wine tasting|tasting room/.test(context)) return new Set(["winery"]);
   return new Set(["tourist_attraction", "museum", "park", "art_gallery", "performing_arts_theater", "amusement_center"]);
 }
 

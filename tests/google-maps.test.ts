@@ -287,3 +287,19 @@ test("weak alternatives return none and the current place is never returned", ()
   const unrelated = { id: "hardware", displayName: { text: "Italian Hardware Supply" }, formattedAddress: "SoHo, New York, NY", primaryType: "hardware_store", types: ["hardware_store"] };
   assert.deepEqual(selectAlternativeCandidates([currentResult, unrelated], source, current, intent), []);
 });
+
+test("more winery options stays within wineries without asking an unrelated clarification", () => {
+  const current = item({ id: "far-niente", type: "activity", title: "Far Niente Winery", description: "Wine tasting", placeId: "far-niente-place", location: "Oakville, CA" });
+  const source = plan(current);
+  source.location = "Napa Valley, CA";
+  const intent = parseReplacementIntent("more winery options", current);
+  assert.equal(intent.needsClarification, false);
+  assert.deepEqual(intent.desiredTerms, ["winery"]);
+  assert.ok(intent.desiredTypes.includes("winery"));
+  const queries = buildAlternativeQueries(source, current, intent);
+  assert.ok(queries.every((query) => /winery/i.test(query)));
+  const winery = { id: "other-winery", displayName: { text: "Oakville Estate Winery" }, formattedAddress: "Oakville, CA", primaryType: "winery", types: ["winery"] };
+  const unrelated = { id: "supply", displayName: { text: "Wine Country Supply" }, formattedAddress: "Oakville, CA", primaryType: "store", types: ["store"] };
+  assert.equal(placeMatchesReplacementIntent(winery, intent, current), true);
+  assert.equal(placeMatchesReplacementIntent(unrelated, intent, current), false);
+});
