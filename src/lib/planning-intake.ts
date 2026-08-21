@@ -12,9 +12,9 @@ export type PlanningIntent = {
   budget?: string; priorities?: string; startingPoint?: string; constraints: string[];
 };
 
-const monthOrSeason = /\b(january|february|march|april|may|june|july|august|september|october|november|december|spring|summer|fall|autumn|winter|flexible dates?|this (?:friday|saturday|sunday|weekend)|\d{4}-\d{2}-\d{2}|\b\d{1,2}\/\d{1,2})\b/i;
+const monthOrSeason = /\b((?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}(?:\s*(?:and|&|to|through|-)\s*\d{1,2})?|january|february|march|april|may|june|july|august|september|october|november|december|spring|summer|fall|autumn|winter|flexible dates?|this (?:friday|saturday|sunday|weekend)|\d{4}-\d{2}-\d{2}|\b\d{1,2}\/\d{1,2})\b/i;
 const durationPattern = /\b(?:(?:about|around|roughly|approximately|approx\.?|nearly)\s+)?(?:a|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s*[- ]?\s*(?:day|days|night|nights|week|weeks)\b|\bweekend\b|\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|through)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i;
-const travelerPattern = /\b(?:solo(?:\s+(?:trip|travel|traveler|travelling|traveling))?|travel(?:l)?ing alone|by myself|on my own|just me|couple|(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:adult|adults|people|person|friends|travelers|guests|team members?))\b/i;
+const travelerPattern = /\b(?:solo(?:\s+(?:trip|travel|traveler|travelling|traveling))?|travel(?:l)?ing alone|by myself|on my own|just me|couple|group\s+(?:of\s+)?(?:two|three|four|five|six|seven|eight|nine|ten|\d+)|(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\s*(?:adult|adults|people|person|friends|travelers|guests|team members?))\b/i;
 const positiveFamilyPattern = /\b(?:with|bringing|and our|our)\s+(?:the\s+)?(?:kids?|children|family|toddler|teenagers?|teens?)\b|\bfamily(?:\s+trip|\s+vacation|\s+holiday)?\b/i;
 const negativeFamilyPattern = /\b(?:no\s+(?:kids?|children)|without\s+(?:kids?|children)|adults?\s+only|don['’]?t\s+have\s+(?:any\s+)?(?:kids?|children)|not\s+travel(?:l)?ing\s+with\s+(?:kids?|children)|solo(?:\s+(?:trip|travel|traveler|travelling|traveling))?|travel(?:l)?ing alone|by myself|on my own|just me)\b/i;
 const agesPattern = /\b(?:ages?|aged)\s*[:\-]?\s*\d{1,2}(?:\s*(?:,|and|&)\s*\d{1,2})*/i;

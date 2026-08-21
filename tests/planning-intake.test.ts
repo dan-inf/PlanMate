@@ -83,6 +83,24 @@ test("natural solo and approximate-duration phrases are recognized", () => {
   }
 });
 
+test("abbreviated date ranges and natural group size are not asked twice", () => {
+  const prompt = "A custom spot in Seattle on Sep 5 and 6 for group 5 with a $1,500 budget focused on food.";
+  const intent = extractPlanningIntent(prompt);
+  const ids = clarificationQuestions("something-else", prompt).map((question) => question.id);
+  assert.equal(intent.timing, "Sep 5 and 6");
+  assert.equal(intent.travelers, "group 5");
+  assert.ok(!ids.includes("timing"));
+  assert.ok(!ids.includes("travelers"));
+});
+
+test("group of five and common month abbreviations are recognized", () => {
+  for (const prompt of ["group of five on Sept. 5-6", "group 5 on Oct 12 and 13"]) {
+    const intent = extractPlanningIntent(prompt);
+    assert.ok(intent.timing);
+    assert.ok(intent.travelers);
+  }
+});
+
 test("adult-only and negated child context never asks ages", () => {
   for (const phrase of ["Two adults, without children", "Two adults, adults only", "Two adults who don't have kids", "Two adults not traveling with children"]) {
     assert.ok(!clarificationQuestions("personal-trip", `${phrase}, a week in Spain in June with a $2,000 budget for food`).some((question) => question.id === "childrenAges"));
