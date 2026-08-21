@@ -4,6 +4,7 @@ import type { Plan, PlanCategory } from "@/lib/plan-schema";
 import type { PlanningAssumption, PlanningIntent } from "@/lib/planning-intake";
 
 export const pendingPlanStorageKey = "agreeaway.pending-generated-plan";
+export const saveGeneratedPlanErrorMessage = "We couldn’t save your plan. Your draft is still safe—try again.";
 const legacyPendingPlanStorageKey = "planmate.pending-generated-plan";
 const pendingPlanHandoffKey = "agreeaway.pending-generated-plan-handoff";
 const pendingSaveKey = "agreeaway.pending-save-key";
@@ -85,7 +86,7 @@ export async function persistGeneratedPlan(
   });
   if (error || !data) {
     void supabase.rpc("track_product_event", { event_name: "free_creation_consume_failed", properties: { stage: "persist" } });
-    throw new Error(error?.message ?? "Could not save this plan.");
+    throw new Error(saveGeneratedPlanErrorMessage);
   }
   window.sessionStorage.removeItem(storageKey);
   window.localStorage.removeItem(pendingSaveKey);
