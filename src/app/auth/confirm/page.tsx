@@ -16,7 +16,15 @@ export default function AuthConfirmPage() {
   useEffect(() => {
     const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const token = fragment.get("token_hash") ?? "";
-    const redirectTo = fragment.get("redirect_to") ?? "";
+    let redirectTo = fragment.get("redirect_to") ?? "";
+    const invite = fragment.get("invite");
+    if (invite && redirectTo) {
+      try {
+        const redirect = new URL(redirectTo);
+        redirect.searchParams.set("invite", invite);
+        redirectTo = redirect.toString();
+      } catch { /* Invalid redirects fall back to the account workspace below. */ }
+    }
     const nextContinuation = authContinuationFromRedirectUrl(redirectTo, window.location.origin);
     window.history.replaceState({}, "", window.location.pathname);
     const readyTimer = window.setTimeout(() => {
