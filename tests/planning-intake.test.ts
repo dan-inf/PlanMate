@@ -6,6 +6,7 @@ import {
   clarificationQuestions,
   extractPlanningIntent,
   helperCopy,
+  reconcileClarificationQuestions,
 } from "../src/lib/planning-intake.ts";
 
 test("a sparse week in Spain asks only high-impact missing questions", () => {
@@ -57,4 +58,45 @@ test("helper copy adapts to category without becoming input text", () => {
   assert.match(helperCopy("date"), /date\/time/i);
   assert.match(helperCopy("personal-trip"), /children.*ages/i);
   assert.match(helperCopy("team-offsite"), /team size/i);
+});
+
+test("solo trip for about a week with no kids does not repeat answered questions", () => {
+  const prompt = "Solo trip to Spain for about a week, no kids, in October with a $3,000 budget focused on food.";
+  const ids = clarificationQuestions("personal-trip", prompt).map((question) => question.id);
+  assert.ok(!ids.includes("duration"));
+  assert.ok(!ids.includes("travelers"));
+  assert.ok(!ids.includes("childrenAges"));
+  assert.equal(extractPlanningIntent(prompt).childrenState, "negative");
+});
+
+test("natural solo and approximate-duration phrases are recognized", () => {
+  for (const prompt of [
+    "Traveling alone for roughly one week in Spain in June with a $2,000 budget for history",
+    "On my own for around 7 days in Spain in June with a $2,000 budget for history",
+  ]) {
+    const ids = clarificationQuestions("personal-trip", prompt).map((question) => question.id);
+    assert.ok(!ids.includes("duration"));
+    assert.ok(!ids.includes("travelers"));
+    assert.ok(!ids.includes("childrenAges"));
+  }
+});
+
+test("adult-only and negated child context never asks ages", () => {
+  for (const phrase of ["Two adults, without children", "Two adults, adults only", "Two adults who don't have kids", "Two adults not traveling with children"]) {
+    assert.ok(!clarificationQuestions("personal-trip", `${phrase}, a week in Spain in June with a $2,000 budget for food`).some((question) => question.id === "childrenAges"));
+  }
+});
+
+test("family question offers no-children and uncertainty escapes", () => {
+  const ageQuestion = clarificationQuestions("personal-trip", "Family trip for a week in Spain in June with a $2,000 budget for food").find((question) => question.id === "childrenAges");
+  assert.ok(ageQuestion?.options.includes("No children"));
+  assert.ok(ageQuestion?.options.includes("Not sure yet"));
+});
+
+test("changing a family answer to solo removes the child-age requirement", () => {
+  const prompt = "A week in Spain in June with a $2,000 budget for food";
+  const familyQuestions = reconcileClarificationQuestions("personal-trip", prompt, { travelers: "Family with children" });
+  assert.ok(familyQuestions.some((question) => question.id === "childrenAges"));
+  const soloQuestions = reconcileClarificationQuestions("personal-trip", prompt, { travelers: "Solo", childrenAges: "Under 5" });
+  assert.ok(!soloQuestions.some((question) => question.id === "childrenAges"));
 });
