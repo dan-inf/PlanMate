@@ -7,6 +7,8 @@ import {
   extractPlanningIntent,
   helperCopy,
   reconcileClarificationQuestions,
+  resolveTimingAnswer,
+  clarificationAnswersComplete,
 } from "../src/lib/planning-intake.ts";
 
 test("a sparse week in Spain asks only high-impact missing questions", () => {
@@ -99,4 +101,21 @@ test("changing a family answer to solo removes the child-age requirement", () =>
   assert.ok(familyQuestions.some((question) => question.id === "childrenAges"));
   const soloQuestions = reconcileClarificationQuestions("personal-trip", prompt, { travelers: "Solo", childrenAges: "Under 5" });
   assert.ok(!soloQuestions.some((question) => question.id === "childrenAges"));
+});
+
+test("timing modes require semantic detail rather than their labels", () => {
+  assert.equal(resolveTimingAnswer("exact", {}), "");
+  assert.equal(resolveTimingAnswer("exact", { start: "2027-03-12", end: "2027-03-19" }), "2027-03-12 to 2027-03-19");
+  assert.equal(resolveTimingAnswer("exact", { start: "2027-03-19", end: "2027-03-12" }), "");
+  assert.equal(resolveTimingAnswer("month-season", {}), "");
+  assert.equal(resolveTimingAnswer("month-season", { month: "2026-10" }), "2026-10");
+  assert.equal(resolveTimingAnswer("month-season", { season: "Summer" }), "Summer, year not sure");
+  assert.equal(resolveTimingAnswer("flexible"), "Flexible timing — anytime");
+});
+
+test("clarification completion validates resolved values", () => {
+  const timing = clarificationQuestions("personal-trip", "A week in Spain with two adults and a $2,000 food budget").find((question) => question.id === "timing");
+  assert.ok(timing);
+  assert.equal(clarificationAnswersComplete([timing], { timing: "" }), false);
+  assert.equal(clarificationAnswersComplete([timing], { timing: "2026-10" }), true);
 });

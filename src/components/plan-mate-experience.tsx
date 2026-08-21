@@ -29,8 +29,9 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { ClarificationSheet } from "@/components/clarification-sheet";
 import type { Plan, PlanCategory, PlanItem } from "@/lib/plan-schema";
-import { assumptionsForSkip, clarificationQuestions, extractPlanningIntent, helperCopy, reconcileClarificationQuestions, type ClarificationQuestion, type IntakeField, type PlanningAssumption } from "@/lib/planning-intake";
+import { assumptionsForSkip, clarificationQuestions, extractPlanningIntent, helperCopy, reconcileClarificationQuestions, resolveTimingAnswer, type ClarificationQuestion, type IntakeField, type PlanningAssumption, type TimingDetails, type TimingMode } from "@/lib/planning-intake";
 import { samplePlan } from "@/lib/sample-plan";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -128,8 +129,10 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [undoPlan, setUndoPlan] = useState<Plan | null>(null);
-  const [clarification, setClarification] = useState<ClarificationQuestion[] | null>(null);
+  const [clarification, setClarification] = useState<ClarificationQuestion[]>([]);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+  const [timingMode, setTimingMode] = useState<TimingMode>();
+  const [timingDetails, setTimingDetails] = useState<TimingDetails>({});
 
   useEffect(() => {
     if (!draftMode) return;
@@ -155,7 +158,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
     setCategory(nextCategory.id);
     setPrompt("");
     setError(null);
-    setClarification(null);
+    setClarification([]);
     setClarificationAnswers({});
   }
 
@@ -165,6 +168,8 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
     if (questions.length) {
       setClarification(questions);
       setClarificationAnswers({});
+      setTimingMode(undefined);
+      setTimingDetails({});
       return;
     }
     await buildPlan(prompt, []);
@@ -204,10 +209,9 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
   }
 
   async function submitClarification(skip = false) {
-    if (!clarification) return;
+    if (!clarification.length) return;
     const assumptions = skip ? assumptionsForSkip(clarification) : clarification.map((question) => ({ label: question.label.replace(/\?$/, ""), value: clarificationAnswers[question.id] || "Not specified", assumed: false }));
     const details = skip ? assumptions.map((item) => `${item.label}: ${item.value}`).join("; ") : clarification.map((question) => `${question.label} ${clarificationAnswers[question.id]}`).join("; ");
-    setClarification(null);
     if (plan && !skip) {
       setLoading(true); setError(null);
       try {
@@ -215,7 +219,7 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
         const data = (await response.json()) as { plan?: Plan; error?: string };
         if (!response.ok || !data.plan) throw new Error(data.error ?? "AgreeAway could not apply those details.");
         data.plan.planningAssumptions = assumptions;
-        setUndoPlan(plan); setPlan(data.plan);
+        setUndoPlan(plan); setPlan(data.plan); setClarification([]);
         const updatedPrompt = `${prompt}\n\nAdditional planning context: ${details}`;
         setPrompt(updatedPrompt);
         window.sessionStorage.setItem(pendingPlanStorageKey, JSON.stringify({ plan: data.plan, category, prompt: updatedPrompt, intent: extractPlanningIntent(updatedPrompt), assumptions } satisfies PendingGeneratedPlan));
@@ -235,6 +239,19 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
     if (field === "travelers" && !/family|children|kids/i.test(value)) delete nextAnswers.childrenAges;
     setClarificationAnswers(nextAnswers);
     setClarification(reconcileClarificationQuestions(category, prompt, nextAnswers));
+  }
+
+  function chooseTimingMode(mode: TimingMode) {
+    setTimingMode(mode);
+    const nextDetails = mode === "exact" ? { start: timingDetails.start, end: timingDetails.end } : mode === "month-season" ? { month: timingDetails.month, season: timingDetails.season, seasonYear: timingDetails.seasonYear } : { earliest: timingDetails.earliest, latest: timingDetails.latest };
+    setTimingDetails(nextDetails);
+    answerClarification("timing", resolveTimingAnswer(mode, nextDetails));
+    window.setTimeout(() => document.querySelector<HTMLElement>("[data-timing-details]")?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
+  }
+
+  function updateTimingDetails(next: TimingDetails) {
+    setTimingDetails(next);
+    answerClarification("timing", resolveTimingAnswer(timingMode, next));
   }
 
   async function savePlan() {
@@ -506,7 +523,10 @@ export function AgreeAwayExperience({ draftMode = false }: { draftMode?: boolean
                 </button>
               </div>
             </form>
+            {clarification.length ? <ClarificationSheet questions={clarification} answers={clarificationAnswers} timingMode={timingMode} timingDetails={timingDetails} loading={loading} error={error} onAnswer={answerClarification} onTimingMode={chooseTimingMode} onTimingDetails={updateTimingDetails} onBuild={() => void submitClarification(false)} onSkip={() => void submitClarification(true)} onClose={() => setClarification([])} /> : null}
+            {clarification ? <>{false ? <>
             {clarification ? <div className="fixed inset-0 z-50 grid place-items-end bg-[#17251e]/45 p-0 backdrop-blur-sm sm:place-items-center sm:p-5" role="dialog" aria-modal="true" aria-label="Plan clarification"><div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-[#fffdf8] p-5 shadow-2xl sm:rounded-[28px] sm:p-7"><p className="text-xs font-bold uppercase tracking-[.14em] text-[#d15d3e]">A better first draft</p><h2 className="mt-2 font-serif text-3xl tracking-[-.04em]">Let’s make this useful.</h2><p className="mt-2 text-sm leading-6 text-[#6c7971]">A few details will change the plan.</p><div className="mt-6 space-y-5">{clarification.map((question) => <fieldset key={question.id}><legend className="text-sm font-bold text-[#33423a]">{question.label}</legend><div className="mt-2 flex flex-wrap gap-2">{question.options.map((option) => <button key={option} type="button" onClick={() => answerClarification(question.id, option)} className={`rounded-full border px-3 py-2 text-xs font-semibold ${clarificationAnswers[question.id] === option ? "border-[#194d3a] bg-[#194d3a] text-white" : "border-[#1e2822]/12 bg-white text-[#526159]"}`}>{option}</button>)}</div><input value={clarificationAnswers[question.id] ?? ""} onChange={(event) => answerClarification(question.id, event.target.value)} placeholder={question.placeholder} className="mt-2 w-full rounded-xl border border-[#1e2822]/10 bg-white px-3 py-2.5 text-sm outline-none" /></fieldset>)}</div><button type="button" disabled={loading || clarification.some((question) => !clarificationAnswers[question.id]?.trim())} onClick={() => void submitClarification(false)} className="mt-7 flex min-h-12 w-full items-center justify-center rounded-full bg-[#d96545] px-5 text-sm font-bold text-white disabled:opacity-50">Build my plan</button><button type="button" disabled={loading} onClick={() => void submitClarification(true)} className="mt-3 w-full py-2 text-sm font-semibold text-[#657168]">Skip — make reasonable assumptions</button></div></div> : null}
+            </> : null}</> : null}
           </div>
         </div>
       </section>

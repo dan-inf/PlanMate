@@ -3,6 +3,8 @@ import type { PlanCategory } from "@/lib/plan-schema";
 export type IntakeField = "timing" | "location" | "duration" | "travelers" | "childrenAges" | "budget" | "priorities";
 export type ClarificationQuestion = { id: IntakeField; label: string; options: string[]; placeholder: string };
 export type PlanningAssumption = { label: string; value: string; assumed: boolean };
+export type TimingMode = "exact" | "month-season" | "flexible";
+export type TimingDetails = { start?: string; end?: string; month?: string; season?: string; seasonYear?: string; earliest?: string; latest?: string };
 
 export type PlanningIntent = {
   timing?: string; location?: string; duration?: string; travelers?: string; childrenAges?: string;
@@ -78,6 +80,31 @@ export function reconcileClarificationQuestions(
 export function assumptionsForSkip(questions: ClarificationQuestion[]): PlanningAssumption[] {
   const defaults: Record<IntakeField, string> = { timing: "Not set; sequencing is provisional", location: "Destination scope assumed from the request", duration: "A practical duration assumed", travelers: "Two travelers assumed", childrenAges: "Children’s ages not provided; suitability needs confirmation", budget: "Mid-range assumed", priorities: "Relaxed pace and balanced interests assumed" };
   return questions.map((question) => ({ label: question.label.replace(/\?$/, ""), value: defaults[question.id], assumed: true }));
+}
+
+export function resolveTimingAnswer(mode?: TimingMode, details: TimingDetails = {}) {
+  if (mode === "exact") {
+    if (!details.start) return "";
+    if (details.end && details.end < details.start) return "";
+    return details.end && details.end !== details.start ? `${details.start} to ${details.end}` : details.start;
+  }
+  if (mode === "month-season") {
+    if (details.month) return details.month;
+    if (details.season) return `${details.season}, ${details.seasonYear?.trim() || "year not sure"}`;
+    return "";
+  }
+  if (mode === "flexible") {
+    if (details.earliest && details.latest && details.latest < details.earliest) return "";
+    if (details.earliest && details.latest) return `Flexible between ${details.earliest} and ${details.latest}`;
+    if (details.earliest) return `Flexible after ${details.earliest}`;
+    if (details.latest) return `Flexible before ${details.latest}`;
+    return "Flexible timing — anytime";
+  }
+  return "";
+}
+
+export function clarificationAnswersComplete(questions: ClarificationQuestion[], answers: Partial<Record<IntakeField, string>>) {
+  return questions.every((question) => Boolean(answers[question.id]?.trim()));
 }
 
 export function helperCopy(category: PlanCategory) {
